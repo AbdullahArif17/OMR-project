@@ -1,0 +1,9 @@
+.env
+.pytest_cache/
+.venv/
+__pycache__/
+*.py[cod]
+omr.db
+omr.db-*
+uploads/*
+!uploads/.gitkeep
