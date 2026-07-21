@@ -147,7 +147,12 @@ class ScanError(BaseModel):
     filename: str
     message: str
     stage: Literal[
-        "upload", "normalization", "detection", "database", "processing"
+        "upload",
+        "normalization",
+        "detection",
+        "database",
+        "processing",
+        "idempotency",
     ] = "processing"
     status_code: int = Field(default=422, ge=400, le=599)
     retryable: bool = False
@@ -170,3 +175,77 @@ class ErrorResponse(BaseModel):
     success: bool = False
     data: Any = None
     message: str
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if "@" not in value:
+            raise ValueError("A valid email address is required")
+        return value
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=1, max_length=512)
+
+
+class AdminLoginRequest(BaseModel):
+    # The admin console authenticates with a shared password only; no email.
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    name: str | None
+    role: str
+    is_active: bool
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def normalize_created_at(cls, value: datetime) -> datetime:
+        return _attach_utc_to_naive(value)
+
+
+class TokenData(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int
+    user: UserRead
+
+
+class CreateUserRequest(BaseModel):
+    # There is exactly one admin, seeded from configuration. The API only ever
+    # creates teacher accounts, so the role is fixed rather than client-supplied.
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=12, max_length=1024)
+    name: str | None = Field(default=None, max_length=255)
+    role: Literal["teacher"] = "teacher"
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if "@" not in value:
+            raise ValueError("A valid email address is required")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class UpdateUserRequest(BaseModel):
+    is_active: bool

@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="surface-card w-full max-w-md p-8 text-center">
           <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-700"><ShieldIcon size={26} /></span>
           <h1 className="mt-5 text-xl font-black text-slate-950">Teacher access required</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-500">Your account is signed in, but it does not have a trusted teacher or admin role. Ask an administrator to update your Supabase app metadata.</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">Your account is signed in, but it does not have a trusted teacher or admin role. Ask an administrator to update your account role.</p>
           <button className="button-secondary mt-6 w-full" disabled={signingOut} onClick={handleSignOut} type="button">{signingOut ? <><Spinner className="h-4 w-4" /> Signing out…</> : <><LogoutIcon size={17} /> Sign out</>}</button>
         </div>
       </main>

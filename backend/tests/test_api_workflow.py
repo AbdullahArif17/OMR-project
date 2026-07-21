@@ -231,6 +231,45 @@ def test_scan_retry_with_idempotency_key_returns_original_batch_once(
     assert listed["summary"]["total_scans"] == 1
 
 
+def test_reused_idempotency_key_with_different_payload_is_rejected(
+    client, make_sheet
+) -> None:
+    exam = _create_exam(client, name="Idempotent Mismatch")
+    exam_id = exam["id"]
+    assert client.post(
+        f"/exams/{exam_id}/answer-key/manual", json={"answers": _answer_map()}
+    ).status_code == 200
+    headers = {"Idempotency-Key": "scan-reuse-0001"}
+    scans_dir = settings.upload_dir / "scans"
+
+    first_sheet = make_sheet(
+        [0, 1, 2, 3, 0, 1, 2, 3, 0, 1], filename="reuse-a.png"
+    )
+    with first_sheet.open("rb") as sheet:
+        first = client.post(
+            f"/exams/{exam_id}/scan",
+            headers=headers,
+            files={"files": ("reuse-a.png", sheet, "image/png")},
+            data={"metadata": json.dumps([{"roll_number": "REUSE-1"}])},
+        )
+    assert first.status_code == 200, first.text
+    after_first = set(scans_dir.glob("*"))
+
+    # Same key, different metadata: reusing the token for a new submission must
+    # not silently drop the new upload.
+    with first_sheet.open("rb") as sheet:
+        conflict = client.post(
+            f"/exams/{exam_id}/scan",
+            headers=headers,
+            files={"files": ("reuse-a.png", sheet, "image/png")},
+            data={"metadata": json.dumps([{"roll_number": "REUSE-2"}])},
+        )
+    assert conflict.status_code == 409, conflict.text
+    assert set(scans_dir.glob("*")) == after_first
+    listed = client.get(f"/exams/{exam_id}/results").json()["data"]
+    assert listed["summary"]["total_scans"] == 1
+
+
 def test_unexpected_scan_failure_rolls_back_results_and_removes_uploads(
     client, make_sheet, monkeypatch
 ) -> None:

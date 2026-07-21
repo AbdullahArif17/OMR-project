@@ -1,6 +1,6 @@
 # Production deployment
 
-This runbook deploys Markwise with a Neon PostgreSQL database, Supabase authentication, a FastAPI container, and a separately built Next.js container.
+This runbook deploys Markwise with a Neon PostgreSQL database, built-in email/password authentication, a FastAPI container, and a separately built Next.js container.
 
 ## 1. Configure secrets and public build values
 
@@ -9,14 +9,16 @@ Copy `backend/.env.example` to a secret-managed production environment and set:
 - `ENVIRONMENT=production`
 - `DATABASE_URL` to the Neon pooled connection (`-pooler` hostname)
 - `DATABASE_URL_DIRECT` to the Neon direct connection, available only to the migration job
-- `AUTH_REQUIRED=true` and the real HTTPS `SUPABASE_URL`
+- `AUTH_REQUIRED=true`
+- `AUTH_JWT_SECRET` to a strong random value of at least 32 characters (e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`)
+- `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` for the first release only, to seed an initial admin when the users table is empty; clear them afterward
 - `CORS_ORIGINS` to the exact HTTPS frontend origin
 - `TRUSTED_HOSTS` to the API hostname without a scheme or path
 - `UPLOAD_DIR=/app/uploads`
 
-Keep both Neon URLs and any legacy JWT secret server-side. Size the total database connections as `(pool size + overflow) × API processes or replicas` within the Neon plan limit. Neon recommends pooled connections for concurrent application traffic; use the direct URL for schema migrations.
+Keep both Neon URLs and `AUTH_JWT_SECRET` server-side. Rotating the signing secret invalidates every outstanding access token. Size the total database connections as `(pool size + overflow) × API processes or replicas` within the Neon plan limit. Neon recommends pooled connections for concurrent application traffic; use the direct URL for schema migrations.
 
-The values in `frontend/.env.example` prefixed with `NEXT_PUBLIC_` are intentionally browser-visible and are compiled into the frontend image. Never place a Neon URL, Supabase service-role key, or `sb_secret_...` key there.
+The values in `frontend/.env.example` prefixed with `NEXT_PUBLIC_` are intentionally browser-visible and are compiled into the frontend image. Never place a Neon URL or `AUTH_JWT_SECRET` there.
 
 ## 2. Apply the database schema
 
@@ -58,8 +60,6 @@ Public variables are build arguments because Next.js embeds them into browser bu
 ```bash
 docker build -t markwise-web:1.0 \
   --build-arg NEXT_PUBLIC_API_URL=https://api.example.com \
-  --build-arg NEXT_PUBLIC_SUPABASE_URL=https://PROJECT_REF.supabase.co \
-  --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_REPLACE_ME \
   --build-arg NEXT_PUBLIC_MAX_FILE_SIZE_MB=10 \
   --build-arg NEXT_PUBLIC_MAX_FILES_PER_REQUEST=50 \
   --build-arg NEXT_PUBLIC_MAX_BATCH_SIZE_MB=100 \

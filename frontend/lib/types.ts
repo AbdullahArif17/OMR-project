@@ -4,6 +4,29 @@ export interface ApiEnvelope<T> {
   message: string;
 }
 
+export interface AccountUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface TokenPayload {
+  access_token: string;
+  refresh_token: string;
+  token_type: "bearer";
+  expires_in: number;
+  user: AccountUser;
+}
+
+export interface CreateTeacherInput {
+  email: string;
+  password: string;
+  name?: string;
+}
+
 export interface Exam {
   id: string;
   name: string;

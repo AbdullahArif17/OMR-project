@@ -10,7 +10,7 @@ import { Alert, Spinner } from "@/components/ui";
 
 export default function LandingPage() {
   const router = useRouter();
-  const { user, loading, isConfigured, signIn, continueInDemo } = useAuth();
+  const { user, loading, allowDemo, signIn, continueInDemo } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -108,7 +108,7 @@ export default function LandingPage() {
                   <Alert tone="success" title={`Signed in as ${user.name}`}>Your workspace is ready.</Alert>
                   <Link className="button-primary mt-5 w-full" href="/dashboard">Continue to dashboard <ArrowRightIcon size={17} /></Link>
                 </div>
-              ) : isConfigured ? (
+              ) : (
                 <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
                   {error && <Alert>{error}</Alert>}
                   <div>
@@ -120,15 +120,14 @@ export default function LandingPage() {
                     <div className="relative"><LockIcon className="pointer-events-none absolute left-3.5 top-3.5 text-slate-400" size={18} /><input autoComplete="current-password" className="text-field pl-11" id="password" minLength={6} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} /></div>
                   </div>
                   <button className="button-primary w-full" disabled={submitting} type="submit">{submitting ? <><Spinner /> Signing in…</> : <>Sign in securely <ArrowRightIcon size={17} /></>}</button>
-                  <p className="text-center text-xs leading-5 text-slate-400">Access is managed through your school’s Supabase account.</p>
+                  <p className="text-center text-xs leading-5 text-slate-400">Access is managed by your school administrator.</p>
+                  {allowDemo && (
+                    <div className="border-t border-slate-200 pt-4">
+                      <button className="button-secondary w-full" onClick={handleDemo} type="button">Continue in local demo <ArrowRightIcon size={17} /></button>
+                      <p className="mt-3 text-center text-xs leading-5 text-slate-400">Demo mode unlocks the UI against a backend running with AUTH_REQUIRED=false.</p>
+                    </div>
+                  )}
                 </form>
-              ) : (
-                <div className="mt-7">
-                  {error && <Alert>{error}</Alert>}
-                  <Alert tone="info" title="Local demo authentication">Supabase variables are not configured. Demo mode unlocks the UI while all exam data still comes from your local FastAPI server.</Alert>
-                  <button className="button-primary mt-5 w-full" onClick={handleDemo} type="button">Continue in local demo <ArrowRightIcon size={17} /></button>
-                  <p className="mt-4 text-center text-xs leading-5 text-slate-400">Set the Supabase URL and publishable key to require real sign-in.</p>
-                </div>
               )}
             </div>
           </div>

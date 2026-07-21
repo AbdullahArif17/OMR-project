@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -47,6 +48,7 @@ logger = logging.getLogger("omr_api.scanner")
 class CachedScanResponse:
     data: dict[str, object]
     message: str
+    request_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,30 @@ class ScanReadContext:
     owner_subject: str
     answer_key: dict[int, str]
     cached_response: CachedScanResponse | None
+
+
+def _request_fingerprint(
+    uploads: list[UploadFile], *, raw_metadata: str | None
+) -> str:
+    """Stable hash of the batch payload shape (filenames, sizes, metadata).
+
+    Uses declared sizes and names rather than full content so it costs no extra
+    I/O and cannot exhaust the upload streams.  It exists to detect a reused
+    Idempotency-Key carrying a different submission, not to authenticate bytes.
+    """
+    parts = [
+        {
+            "filename": upload.filename or "",
+            "size": _known_upload_size(upload),
+        }
+        for upload in uploads
+    ]
+    payload = json.dumps(
+        {"files": parts, "metadata": raw_metadata},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +120,7 @@ def _cached_scan_response(
     return CachedScanResponse(
         data=dict(batch.response_data),
         message=batch.response_message,
+        request_fingerprint=batch.request_fingerprint,
     )
 
 
@@ -208,6 +235,7 @@ def _cache_scan_batch(
     *,
     exam_id: uuid.UUID,
     idempotency_key: str,
+    request_fingerprint: str | None,
     response_data: dict[str, object],
     response_message: str,
 ) -> None:
@@ -215,10 +243,22 @@ def _cache_scan_batch(
         ScanBatch(
             exam_id=exam_id,
             idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
             response_data=response_data,
             response_message=response_message,
         )
     )
+
+
+def _is_idempotency_conflict(exc: IntegrityError) -> bool:
+    """Best-effort check that an IntegrityError is the scan-batch unique key.
+
+    Matches the constraint name across drivers (SQLite reports the columns,
+    PostgreSQL reports the constraint name); falls back to the idempotency
+    column so a driver-specific message shape is still classified correctly.
+    """
+    text = " ".join(str(part) for part in (exc.orig, exc)).lower()
+    return "scan_batch_exam_idempotency" in text or "idempotency_key" in text
 
 
 def _commit_transaction(db: Session) -> None:
@@ -304,6 +344,43 @@ def _exam_changed_error(
     )
 
 
+def _reject_on_fingerprint_mismatch(
+    cached: CachedScanResponse, request_fingerprint: str | None
+) -> None:
+    """Guard against a reused Idempotency-Key carrying a different payload.
+
+    An Idempotency-Key is a promise that the request is a retry of the same
+    submission.  Returning the original batch for a genuinely different upload
+    silently drops the new files, so reject the mismatch and tell the client to
+    use a fresh key.  Legacy rows without a stored fingerprint are not enforced.
+    """
+    if (
+        cached.request_fingerprint is not None
+        and request_fingerprint is not None
+        and cached.request_fingerprint != request_fingerprint
+    ):
+        message = (
+            "This Idempotency-Key was already used for a different set of "
+            "files or metadata; use a new key for a new submission"
+        )
+        raise ApplicationError(
+            message,
+            status_code=409,
+            data=_batch_data(
+                [],
+                [
+                    _scan_error(
+                        filename="batch",
+                        message=message,
+                        stage="idempotency",
+                        status_code=409,
+                    )
+                ],
+                status="failed",
+            ),
+        )
+
+
 def _persist_scan_batch(
     db: Session,
     *,
@@ -312,6 +389,7 @@ def _persist_scan_batch(
     pending_results: list[PendingScanResult],
     errors: list[dict[str, object]],
     idempotency_key: str | None,
+    request_fingerprint: str | None,
 ) -> PersistedScanResponse:
     current_filename = "batch"
     try:
@@ -321,6 +399,7 @@ def _persist_scan_batch(
             )
             if cached_response is not None:
                 db.rollback()
+                _reject_on_fingerprint_mismatch(cached_response, request_fingerprint)
                 return PersistedScanResponse(
                     data=cached_response.data,
                     message=cached_response.message,
@@ -369,6 +448,7 @@ def _persist_scan_batch(
                 db,
                 exam_id=context.exam_id,
                 idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
                 response_data=response_data,
                 response_message=message,
             )
@@ -390,17 +470,33 @@ def _persist_scan_batch(
                 # connection after this helper returns.
                 db.rollback()
             if cached_response is not None:
+                _reject_on_fingerprint_mismatch(cached_response, request_fingerprint)
                 return PersistedScanResponse(
                     data=cached_response.data,
                     message=cached_response.message,
                     committed_new_results=False,
                 )
-        database_error = _scan_error(
-            filename=current_filename,
-            message="Student metadata conflicts with an existing roll number",
-            stage="database",
-            status_code=409,
-        )
+        # Distinguish a concurrent duplicate Idempotency-Key (the competing
+        # transaction has not become visible yet) from a genuine roll-number
+        # collision.  The former is safe to retry; the latter is not.
+        if _is_idempotency_conflict(exc):
+            database_error = _scan_error(
+                filename="batch",
+                message=(
+                    "A concurrent submission used the same Idempotency-Key; "
+                    "retry to receive the committed result"
+                ),
+                stage="database",
+                status_code=409,
+                retryable=True,
+            )
+        else:
+            database_error = _scan_error(
+                filename=current_filename,
+                message="Student metadata conflicts with an existing roll number",
+                stage="database",
+                status_code=409,
+            )
         raise ApplicationError(
             "The scan batch could not be saved; no results were committed",
             status_code=409,
@@ -606,6 +702,21 @@ async def scan_student_sheets(
             classes=classes,
             class_names=class_names,
         )
+        raw_metadata_for_fingerprint = json.dumps(
+            {
+                "metadata": metadata,
+                "student_metadata": student_metadata,
+                "student_names": student_names,
+                "roll_numbers": roll_numbers,
+                "classes": classes,
+                "class_names": class_names,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        request_fingerprint = _request_fingerprint(
+            uploads, raw_metadata=raw_metadata_for_fingerprint
+        )
         scan_context = await run_in_threadpool(
             _load_scan_context, db, exam_id, user, idempotency_key
         )
@@ -614,6 +725,9 @@ async def scan_student_sheets(
         raise
     if scan_context.cached_response is not None:
         await _close_uploads(uploads)
+        _reject_on_fingerprint_mismatch(
+            scan_context.cached_response, request_fingerprint
+        )
         return {
             "success": True,
             "data": scan_context.cached_response.data,
@@ -791,6 +905,7 @@ async def scan_student_sheets(
                 pending_results=pending_results,
                 errors=errors,
                 idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
             )
         )
         transaction_committed = persisted.committed_new_results

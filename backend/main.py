@@ -21,7 +21,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from config import settings
 from database import engine
 from errors import ApplicationError
-from routers import answer_keys, exams, results, scanner
+from routers import answer_keys, auth, exams, results, scanner
 
 
 logger = logging.getLogger("omr_api")
@@ -241,6 +241,7 @@ async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResp
     )
 
 
+app.include_router(auth.router)
 app.include_router(exams.router)
 app.include_router(answer_keys.router)
 app.include_router(scanner.router)

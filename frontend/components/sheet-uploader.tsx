@@ -11,7 +11,7 @@ import {
   uploadPolicy,
   validateUploadFile,
 } from "@/lib/upload-policy";
-import { cn, fileSize } from "@/lib/utils";
+import { cn, fileSize, randomId } from "@/lib/utils";
 
 interface QueuedSheet extends ScanSheetInput {
   queueId: string;
@@ -105,7 +105,7 @@ export function SheetUploader({
           studentName: "",
           rollNumber: "",
           className: "",
-          queueId: crypto.randomUUID(),
+          queueId: randomId(),
         });
       }
 
@@ -183,7 +183,7 @@ export function SheetUploader({
     }
 
     const controller = new AbortController();
-    const idempotencyKey = submissionKey.current ?? crypto.randomUUID();
+    const idempotencyKey = submissionKey.current ?? randomId();
     submissionKey.current = idempotencyKey;
     activeRequest.current = controller;
     setProcessing(true);

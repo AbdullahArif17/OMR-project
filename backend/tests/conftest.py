@@ -16,11 +16,7 @@ TEST_UPLOAD_DIR = Path(tempfile.mkdtemp(prefix="omr-api-tests-"))
 os.environ["ENVIRONMENT"] = "test"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["AUTH_REQUIRED"] = "false"
-os.environ["SUPABASE_URL"] = ""
-os.environ["SUPABASE_JWKS_URL"] = ""
-os.environ["SUPABASE_JWT_SECRET"] = ""
-os.environ["SUPABASE_JWT_AUDIENCE"] = ""
-os.environ["SUPABASE_JWT_ISSUER"] = ""
+os.environ["AUTH_JWT_SECRET"] = ""
 os.environ["UPLOAD_DIR"] = str(TEST_UPLOAD_DIR)
 
 from database import Base, engine  # noqa: E402

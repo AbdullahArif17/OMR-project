@@ -246,7 +246,13 @@ async def store_upload(
         raise
     finally:
         await upload.close()
-    relative_path = destination.relative_to(configured.upload_dir).as_posix()
+    # `destination` derives from the resolved category dir, so compute the
+    # relative path against the resolved root too. Using the unresolved
+    # `configured.upload_dir` raises ValueError when the path traverses a
+    # symlink (e.g. macOS /tmp -> /private/tmp), turning a valid upload into 500.
+    relative_path = destination.relative_to(
+        configured.upload_dir.resolve()
+    ).as_posix()
     return StoredUpload(
         path=destination,
         original_name=original_name,

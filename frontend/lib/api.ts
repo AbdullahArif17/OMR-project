@@ -1,14 +1,17 @@
-import axios, { AxiosError } from "axios";
+import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import type {
+  AccountUser,
   AnswerKeyPayload,
   AnswerMap,
   ApiEnvelope,
   CreateExamInput,
+  CreateTeacherInput,
   Exam,
   Result,
   ResultsPayload,
   ScanBatchPayload,
   ScanSheetInput,
+  TokenPayload,
 } from "@/lib/types";
 
 const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -19,18 +22,56 @@ const client = axios.create({
   headers: { Accept: "application/json" },
 });
 
-type AccessTokenProvider = () => Promise<string | null>;
-let tokenProvider: AccessTokenProvider = async () => null;
+type AccessTokenProvider = () => string | null;
+type UnauthorizedHandler = () => Promise<string | null>;
+
+let tokenProvider: AccessTokenProvider = () => null;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
 
 export function setAccessTokenProvider(provider: AccessTokenProvider) {
   tokenProvider = provider;
 }
 
-client.interceptors.request.use(async (config) => {
-  const token = await tokenProvider();
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
+}
+
+// Requests that carry their own credentials (login/refresh) opt out of both the
+// bearer header and the refresh-on-401 retry to avoid recursion.
+interface RetryableConfig extends InternalAxiosRequestConfig {
+  skipAuth?: boolean;
+  _retried?: boolean;
+}
+
+client.interceptors.request.use((config: RetryableConfig) => {
+  if (config.skipAuth) return config;
+  const token = tokenProvider();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+client.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const config = error.config as RetryableConfig | undefined;
+    const status = error.response?.status;
+    if (
+      status === 401 &&
+      config &&
+      !config.skipAuth &&
+      !config._retried &&
+      unauthorizedHandler
+    ) {
+      config._retried = true;
+      const refreshed = await unauthorizedHandler();
+      if (refreshed) {
+        config.headers.Authorization = `Bearer ${refreshed}`;
+        return client(config);
+      }
+    }
+    return Promise.reject(error);
+  },
+);
 
 function unwrap<T>(payload: ApiEnvelope<T> | T): T {
   if (payload && typeof payload === "object" && "success" in payload) {
@@ -86,6 +127,59 @@ export function getApiError(error: unknown, fallback = "Something went wrong. Pl
 
 export const api = {
   baseUrl: apiUrl,
+
+  async login(email: string, password: string) {
+    const response = await client.post<ApiEnvelope<TokenPayload>>(
+      "/auth/login",
+      { email, password },
+      { skipAuth: true } as RetryableConfig,
+    );
+    return unwrap(response.data);
+  },
+
+  async refreshSession(refreshToken: string) {
+    const response = await client.post<ApiEnvelope<TokenPayload>>(
+      "/auth/refresh",
+      { refresh_token: refreshToken },
+      { skipAuth: true } as RetryableConfig,
+    );
+    return unwrap(response.data);
+  },
+
+  async logout(refreshToken: string) {
+    await client.post(
+      "/auth/logout",
+      { refresh_token: refreshToken },
+      { skipAuth: true } as RetryableConfig,
+    );
+  },
+
+  async me() {
+    const response = await client.get<ApiEnvelope<AccountUser>>("/auth/me");
+    return unwrap(response.data);
+  },
+
+  async listTeachers() {
+    const response = await client.get<ApiEnvelope<AccountUser[]>>("/auth/users");
+    return unwrap(response.data);
+  },
+
+  async createTeacher(input: CreateTeacherInput) {
+    const response = await client.post<ApiEnvelope<AccountUser>>("/auth/users", {
+      email: input.email,
+      password: input.password,
+      name: input.name?.trim() || undefined,
+    });
+    return unwrap(response.data);
+  },
+
+  async setTeacherActive(userId: string, isActive: boolean) {
+    const response = await client.patch<ApiEnvelope<AccountUser>>(
+      `/auth/users/${userId}`,
+      { is_active: isActive },
+    );
+    return unwrap(response.data);
+  },
 
   async listExams() {
     const response = await client.get<ApiEnvelope<Exam[]> | Exam[]>("/exams");

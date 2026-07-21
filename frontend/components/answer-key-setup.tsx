@@ -41,9 +41,13 @@ export function AnswerKeySetup({ exam, initialAnswers = {}, onSaved }: { exam: E
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Sync when the persisted key actually changes. Depend on a stable
+  // serialization rather than object identity so a fresh `initialAnswers = {}`
+  // default (new identity each render) cannot wipe in-progress edits.
+  const initialAnswersKey = useMemo(() => JSON.stringify(initialAnswers), [initialAnswers]);
   useEffect(() => {
-    setAnswers(initialAnswers);
-  }, [initialAnswers]);
+    setAnswers(JSON.parse(initialAnswersKey) as AnswerMap);
+  }, [initialAnswersKey]);
 
   const options = useMemo(
     () => Array.from({ length: exam.options_per_question }, (_, index) => String.fromCharCode(65 + index)),

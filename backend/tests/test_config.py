@@ -5,35 +5,6 @@ import pytest
 import config
 
 
-def test_supabase_url_derives_issuer_and_jwks_url(monkeypatch) -> None:
-    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co/")
-    monkeypatch.delenv("SUPABASE_JWT_ISSUER", raising=False)
-    monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
-
-    base_url, issuer, jwks_url = config._supabase_auth_urls()
-
-    assert base_url == "https://project.supabase.co"
-    assert issuer == "https://project.supabase.co/auth/v1"
-    assert jwks_url == (
-        "https://project.supabase.co/auth/v1/.well-known/jwks.json"
-    )
-
-
-def test_explicit_jwks_url_derives_standard_issuer(monkeypatch) -> None:
-    monkeypatch.delenv("SUPABASE_URL", raising=False)
-    monkeypatch.delenv("SUPABASE_JWT_ISSUER", raising=False)
-    monkeypatch.setenv(
-        "SUPABASE_JWKS_URL",
-        "https://auth.example.com/auth/v1/.well-known/jwks.json",
-    )
-
-    base_url, issuer, jwks_url = config._supabase_auth_urls()
-
-    assert base_url is None
-    assert issuer == "https://auth.example.com/auth/v1"
-    assert jwks_url == "https://auth.example.com/auth/v1/.well-known/jwks.json"
-
-
 def _set_valid_production_environment(monkeypatch) -> None:
     monkeypatch.setenv(
         "DATABASE_URL",
@@ -45,8 +16,10 @@ def _set_valid_production_environment(monkeypatch) -> None:
     )
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("AUTH_REQUIRED", "true")
-    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
-    monkeypatch.setenv("SUPABASE_JWT_SECRET", "")
+    monkeypatch.setenv(
+        "AUTH_JWT_SECRET", "a-production-signing-secret-32-chars-min"
+    )
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-console-password")
     monkeypatch.setenv("CORS_ORIGINS", "https://markwise.example.com")
     monkeypatch.setenv("TRUSTED_HOSTS", "api.markwise.example.com")
 
@@ -71,7 +44,10 @@ def test_production_settings_accept_neon_and_exact_https_origins(monkeypatch) ->
         ("AUTH_REQUIRED", "false", "AUTH_REQUIRED must be true"),
         ("CORS_ORIGINS", "http://markwise.example.com", "must use HTTPS"),
         ("TRUSTED_HOSTS", "*", "cannot contain a wildcard"),
-        ("SUPABASE_URL", "http://project.supabase.co", "must use HTTPS"),
+        ("AUTH_JWT_SECRET", "", "requires AUTH_JWT_SECRET"),
+        ("AUTH_JWT_SECRET", "too-short", "at least 32 characters"),
+        ("ADMIN_PASSWORD", "", "requires ADMIN_PASSWORD"),
+        ("ADMIN_PASSWORD", "short", "at least 12 characters"),
         ("DATABASE_URL_DIRECT", "sqlite:///wrong.db", "must use PostgreSQL"),
     ],
 )

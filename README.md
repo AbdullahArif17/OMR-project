@@ -6,7 +6,7 @@ Markwise is a full-stack optical mark recognition system for teachers and exam a
 
 - Next.js App Router frontend with TypeScript and Tailwind CSS
 - FastAPI API with SQLAlchemy and PostgreSQL/Neon support
-- Supabase JWT authentication with `teacher` and `admin` roles
+- Built-in email/password authentication (Neon-backed) with `teacher` and `admin` roles
 - OpenCV bubble detection and per-question grading
 - Perspective, skew, lighting, scale, and camera-noise normalization with safe low-confidence rejection
 - Manual, scanned-master, and CSV answer-key entry
@@ -36,7 +36,6 @@ Markwise is a full-stack optical mark recognition system for teachers and exam a
 - Node.js 20 or newer
 - Python 3.11 or newer
 - A Neon PostgreSQL project
-- A Supabase project when authentication is enabled
 - Poppler installed and available on `PATH` for PDF uploads (`pdftoppm` must be discoverable)
 
 PNG and JPEG processing does not require Poppler.
@@ -88,11 +87,15 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 The interactive API reference is available at `http://localhost:8000/docs` outside production. Liveness and database readiness are exposed at `/health/live` and `/health/ready`.
 
-## 2. Configure Supabase authentication
+## 2. Configure authentication
 
-Create users in Supabase Auth and assign each permitted user a role of `teacher` or `admin` in trusted application metadata (`app_metadata.role`, or `app_metadata.roles`). User metadata is profile data and is deliberately never trusted for authorization. Copy the project URL and publishable key into `frontend/.env.local`; configure the same project URL in `backend/.env` so FastAPI can verify access tokens through Supabase's public JWKS endpoint. The legacy shared JWT secret remains supported for older projects. Teachers can access only exams they created; admins can access all exams.
+Authentication is built into the API. Accounts sign in with email and password; the backend issues a short-lived HS256 access token plus a rotating refresh token, both stored in Neon (refresh tokens are stored hashed and revocable). Set `AUTH_JWT_SECRET` in `backend/.env` to a strong random value of at least 32 characters.
 
-For a deliberately unauthenticated local demo, set the backend's documented auth flag to disabled and enable the frontend demo mode. Never use demo mode in a public deployment.
+There is exactly one admin, seeded from `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`: on startup, when the users table is empty, the admin is created from those values. The API only ever creates `teacher` accounts, so a second admin cannot be added through it. Teachers can access only exams they created; the admin can access all exams.
+
+The admin manages teacher accounts from an unlinked console at `/admin`. It is not linked from the app and is excluded from indexing, but it is not secret: it still requires signing in with the admin credentials, and non-admin accounts are refused. From there the admin can create teachers and enable or disable their access (disabling immediately revokes any active session). New teachers sign in on the main site.
+
+For a deliberately unauthenticated local demo, set the backend's `AUTH_REQUIRED=false` and `NEXT_PUBLIC_ALLOW_DEMO=true` in the frontend. Never use demo mode in a public deployment.
 
 ## 3. Start the frontend
 
@@ -174,4 +177,4 @@ npm run build
 
 ## Production notes
 
-Use the supplied non-root Dockerfiles and follow [DEPLOYMENT.md](./DEPLOYMENT.md) for Neon migrations, environment validation, persistent uploads, reverse-proxy limits, health checks, and rollout order. Public deployment must use `ENVIRONMENT=production`, Supabase authentication, exact HTTPS CORS origins, and exact trusted hosts.
+Use the supplied non-root Dockerfiles and follow [DEPLOYMENT.md](./DEPLOYMENT.md) for Neon migrations, environment validation, persistent uploads, reverse-proxy limits, health checks, and rollout order. Public deployment must use `ENVIRONMENT=production`, `AUTH_REQUIRED=true` with a strong `AUTH_JWT_SECRET`, exact HTTPS CORS origins, and exact trusted hosts.

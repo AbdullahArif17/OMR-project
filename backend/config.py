@@ -63,50 +63,6 @@ def _positive_float(name: str, default: float) -> float:
     return value
 
 
-def _validated_auth_url(name: str, value: str) -> str:
-    normalized = value.strip().rstrip("/")
-    parsed = urlsplit(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"{name} must be an absolute HTTP(S) URL")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError(f"{name} must not contain credentials, a query, or a fragment")
-    return normalized
-
-
-def _supabase_auth_urls() -> tuple[str | None, str | None, str | None]:
-    raw_base_url = os.getenv("SUPABASE_URL", "").strip()
-    raw_issuer = os.getenv("SUPABASE_JWT_ISSUER", "").strip()
-    raw_jwks_url = os.getenv("SUPABASE_JWKS_URL", "").strip()
-
-    base_url = (
-        _validated_auth_url("SUPABASE_URL", raw_base_url) if raw_base_url else None
-    )
-    issuer = (
-        _validated_auth_url("SUPABASE_JWT_ISSUER", raw_issuer)
-        if raw_issuer
-        else None
-    )
-    jwks_url = (
-        _validated_auth_url("SUPABASE_JWKS_URL", raw_jwks_url)
-        if raw_jwks_url
-        else None
-    )
-
-    if issuer is None and base_url is not None:
-        issuer = (
-            base_url
-            if base_url.endswith("/auth/v1")
-            else f"{base_url}/auth/v1"
-        )
-    if issuer is None and jwks_url is not None:
-        jwks_suffix = "/.well-known/jwks.json"
-        if jwks_url.endswith(jwks_suffix):
-            issuer = jwks_url[: -len(jwks_suffix)]
-    if jwks_url is None and issuer is not None:
-        jwks_url = f"{issuer}/.well-known/jwks.json"
-    return base_url, issuer, jwks_url
-
-
 def _normalize_database_url(configured: str) -> str:
     if configured.startswith("postgres://"):
         return configured.replace("postgres://", "postgresql+psycopg2://", 1)
@@ -131,13 +87,6 @@ def _upload_dir() -> Path:
     if not configured.is_absolute():
         configured = BASE_DIR / configured
     return configured.resolve()
-
-
-def _auth_urls_are_secure(*urls: str | None) -> bool:
-    configured_urls = [url for url in urls if url]
-    return bool(configured_urls) and all(
-        url.startswith("https://") for url in configured_urls
-    )
 
 
 def _cors_origins() -> tuple[str, ...]:
@@ -187,14 +136,11 @@ class Settings:
     storage_cleanup_grace_hours: int
     idempotency_retention_hours: int
     auth_required: bool
-    supabase_url: str | None
-    supabase_jwks_url: str | None
-    supabase_jwks_cache_ttl_seconds: int
-    supabase_jwks_timeout_seconds: float
-    supabase_jwt_secret: str | None
-    supabase_jwt_algorithm: str
-    supabase_jwt_audience: str | None
-    supabase_jwt_issuer: str | None
+    auth_jwt_secret: str | None
+    auth_jwt_algorithm: str
+    auth_access_token_ttl_minutes: int
+    auth_refresh_token_ttl_days: int
+    admin_password: str | None
     cors_origins: tuple[str, ...]
     trusted_hosts: tuple[str, ...]
     environment: str
@@ -215,11 +161,11 @@ class Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     database_url, database_url_direct = _database_urls()
-    supabase_url, supabase_jwt_issuer, supabase_jwks_url = _supabase_auth_urls()
     environment = os.getenv("ENVIRONMENT", "development").strip().lower()
-    secret = os.getenv("SUPABASE_JWT_SECRET", "").strip() or None
+    secret = os.getenv("AUTH_JWT_SECRET", "").strip() or None
     auth_setting = os.getenv("AUTH_REQUIRED")
     auth_required = _parse_bool(auth_setting, default=True)
+    admin_password = os.getenv("ADMIN_PASSWORD", "").strip() or None
     origins = _cors_origins()
     trusted_hosts = tuple(
         host.strip()
@@ -242,24 +188,34 @@ def get_settings() -> Settings:
             raise ValueError("Production DATABASE_URL_DIRECT must use PostgreSQL")
         if not auth_required:
             raise ValueError("AUTH_REQUIRED must be true in production")
-        if not (supabase_jwks_url or secret):
-            raise ValueError("Production authentication requires SUPABASE_URL, SUPABASE_JWKS_URL, or a legacy JWT secret")
+        if not secret:
+            raise ValueError(
+                "Production authentication requires AUTH_JWT_SECRET"
+            )
+        if len(secret) < 32:
+            raise ValueError(
+                "Production AUTH_JWT_SECRET must be at least 32 characters"
+            )
+        if not admin_password:
+            raise ValueError(
+                "Production requires ADMIN_PASSWORD to enable the admin console"
+            )
         insecure_origins = [origin for origin in origins if not origin.startswith("https://")]
         if insecure_origins:
             raise ValueError("Production CORS_ORIGINS must use HTTPS")
         if any("*" in host for host in trusted_hosts):
             raise ValueError("Production TRUSTED_HOSTS cannot contain a wildcard")
-        if not _auth_urls_are_secure(supabase_url, supabase_jwks_url):
-            raise ValueError("Production Supabase authentication URLs must use HTTPS")
-    legacy_algorithm = os.getenv("SUPABASE_JWT_ALGORITHM", "HS256").strip().upper()
-    if legacy_algorithm != "HS256":
-        raise ValueError("SUPABASE_JWT_ALGORITHM only supports the legacy HS256 fallback")
-    jwks_cache_ttl = _positive_int("SUPABASE_JWKS_CACHE_TTL_SECONDS", 600)
-    if jwks_cache_ttl > 600:
-        raise ValueError("SUPABASE_JWKS_CACHE_TTL_SECONDS cannot exceed 600")
-    jwks_timeout = _positive_float("SUPABASE_JWKS_TIMEOUT_SECONDS", 5.0)
-    if jwks_timeout > 30:
-        raise ValueError("SUPABASE_JWKS_TIMEOUT_SECONDS cannot exceed 30")
+    auth_algorithm = os.getenv("AUTH_JWT_ALGORITHM", "HS256").strip().upper()
+    if auth_algorithm != "HS256":
+        raise ValueError("AUTH_JWT_ALGORITHM only supports HS256")
+    access_ttl_minutes = _positive_int("AUTH_ACCESS_TOKEN_TTL_MINUTES", 30)
+    if access_ttl_minutes > 24 * 60:
+        raise ValueError("AUTH_ACCESS_TOKEN_TTL_MINUTES cannot exceed 1440")
+    refresh_ttl_days = _positive_int("AUTH_REFRESH_TOKEN_TTL_DAYS", 30)
+    if refresh_ttl_days > 365:
+        raise ValueError("AUTH_REFRESH_TOKEN_TTL_DAYS cannot exceed 365")
+    if admin_password is not None and len(admin_password) < 12:
+        raise ValueError("ADMIN_PASSWORD must be at least 12 characters")
     max_file_size_mb = _positive_int("MAX_FILE_SIZE_MB", 10)
     max_files_per_request = _positive_int("MAX_FILES_PER_REQUEST", 50)
     max_batch_size_mb = _positive_int("MAX_BATCH_SIZE_MB", 100)
@@ -298,15 +254,11 @@ def get_settings() -> Settings:
             "IDEMPOTENCY_RETENTION_HOURS", 168
         ),
         auth_required=auth_required,
-        supabase_url=supabase_url,
-        supabase_jwks_url=supabase_jwks_url,
-        supabase_jwks_cache_ttl_seconds=jwks_cache_ttl,
-        supabase_jwks_timeout_seconds=jwks_timeout,
-        supabase_jwt_secret=secret,
-        supabase_jwt_algorithm=legacy_algorithm,
-        supabase_jwt_audience=os.getenv("SUPABASE_JWT_AUDIENCE", "").strip()
-        or None,
-        supabase_jwt_issuer=supabase_jwt_issuer,
+        auth_jwt_secret=secret,
+        auth_jwt_algorithm=auth_algorithm,
+        auth_access_token_ttl_minutes=access_ttl_minutes,
+        auth_refresh_token_ttl_days=refresh_ttl_days,
+        admin_password=admin_password,
         cors_origins=origins,
         trusted_hosts=trusted_hosts,
         environment=environment,

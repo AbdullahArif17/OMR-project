@@ -1,94 +1,66 @@
 from __future__ import annotations
 
-import base64
-import json
+import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-import httpx
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from jose import jwt
 
 import auth
+from database import SessionLocal
+from models import User
 
 
-@pytest.fixture(autouse=True)
-def clear_jwks_cache():
-    auth._clear_jwks_cache()
+SECRET = "test-secret-that-is-long-enough-for-production-use"
+ADMIN_PASSWORD = "admin-console-password"
+
+
+@pytest.fixture()
+def secured(monkeypatch):
+    """Turn on real authentication with a signing secret for a test."""
+    monkeypatch.setattr(
+        auth,
+        "settings",
+        replace(
+            auth.settings,
+            auth_required=True,
+            auth_jwt_secret=SECRET,
+            admin_password=ADMIN_PASSWORD,
+        ),
+    )
     yield
-    auth._clear_jwks_cache()
 
 
-def _base64url_uint(value: int) -> str:
-    raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+def _create_user(email: str, *, role: str = "teacher", password: str = "sup3r-secret-pw") -> User:
+    session = SessionLocal()
+    try:
+        user = User(
+            email=email.strip().lower(),
+            password_hash=auth.hash_password(password),
+            name=email.split("@")[0],
+            role=role,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        session.expunge(user)
+        return user
+    finally:
+        session.close()
 
 
-def _rsa_signing_material(kid: str) -> tuple[bytes, dict[str, object]]:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_numbers = private_key.public_key().public_numbers()
-    private_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    public_jwk: dict[str, object] = {
-        "kty": "RSA",
-        "kid": kid,
-        "use": "sig",
-        "key_ops": ["verify"],
-        "alg": "RS256",
-        "n": _base64url_uint(public_numbers.n),
-        "e": _base64url_uint(public_numbers.e),
-    }
-    return private_pem, public_jwk
+def _headers(user: User) -> dict[str, str]:
+    token, _ = auth.create_access_token(user)
+    return {"Authorization": f"Bearer {token}"}
 
 
-def _ec_signing_material(kid: str) -> tuple[bytes, dict[str, object]]:
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    public_numbers = private_key.public_key().public_numbers()
-    private_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    public_jwk: dict[str, object] = {
-        "kty": "EC",
-        "kid": kid,
-        "use": "sig",
-        "key_ops": ["verify"],
-        "alg": "ES256",
-        "crv": "P-256",
-        "x": _base64url_uint(public_numbers.x),
-        "y": _base64url_uint(public_numbers.y),
-    }
-    return private_pem, public_jwk
+def _admin_headers() -> dict[str, str]:
+    token, _ = auth.create_admin_access_token()
+    return {"Authorization": f"Bearer {token}"}
 
 
-def _asymmetric_token(
-    private_pem: bytes,
-    *,
-    kid: str,
-    issuer: str,
-    algorithm: str = "RS256",
-) -> str:
-    return jwt.encode(
-        {
-            "sub": "asymmetric-teacher",
-            "iss": issuer,
-            "app_metadata": {"role": "teacher"},
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-        },
-        private_pem,
-        algorithm=algorithm,
-        headers={"kid": kid},
-    )
-
-
-def test_admin_role_takes_precedence_over_teacher_role() -> None:
-    assert auth._authorized_role(["teacher", "admin"]) == "admin"
+# --- Answer-key behaviour (auth bypass in default test config) --------------
 
 
 def _exam(client) -> str:
@@ -144,258 +116,276 @@ def test_manual_answer_key_must_be_complete_and_use_valid_options(client) -> Non
     assert "Question 10" in invalid.json()["message"]
 
 
-def test_authentication_enforces_token_and_teacher_admin_role(client, monkeypatch) -> None:
-    secret = "test-secret-that-is-long-enough"
-    secured_settings = replace(
-        auth.settings,
-        auth_required=True,
-        supabase_jwks_url="https://project.supabase.co/auth/v1/.well-known/jwks.json",
-        supabase_jwt_secret=secret,
-        supabase_jwt_audience=None,
-        supabase_jwt_issuer=None,
-    )
-    monkeypatch.setattr(auth, "settings", secured_settings)
-    monkeypatch.setattr(
-        auth,
-        "_fetch_jwks",
-        lambda _: pytest.fail("HS256 fallback must not fetch JWKS"),
-    )
+# --- Authentication ---------------------------------------------------------
 
-    missing = client.get("/exams")
-    assert missing.status_code == 401
-    assert missing.json()["success"] is False
 
-    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
-    student_token = jwt.encode(
-        {"sub": "student-id", "role": "student", "exp": expiry},
-        secret,
-        algorithm="HS256",
-    )
-    forbidden = client.get(
-        "/exams", headers={"Authorization": f"Bearer {student_token}"}
-    )
-    assert forbidden.status_code == 403
+def test_password_hash_roundtrip_and_length_guard() -> None:
+    stored = auth.hash_password("correct horse battery staple")
+    assert stored != "correct horse battery staple"
+    assert auth.verify_password("correct horse battery staple", stored)
+    assert not auth.verify_password("wrong password", stored)
+    assert not auth.verify_password("x" * 100, stored)
 
-    teacher_token = jwt.encode(
-        {
-            "sub": "teacher-id",
-            "app_metadata": {"role": "teacher"},
-            "exp": expiry,
-        },
-        secret,
-        algorithm="HS256",
+
+def test_missing_token_is_rejected_when_auth_required(client, secured) -> None:
+    response = client.get("/exams")
+    assert response.status_code == 401
+    assert response.json()["success"] is False
+
+
+def test_login_issues_tokens_and_authorizes_requests(client, secured) -> None:
+    _create_user("teacher@example.com", password="sup3r-secret-pw")
+    login = client.post(
+        "/auth/login",
+        json={"email": "teacher@example.com", "password": "sup3r-secret-pw"},
     )
+    assert login.status_code == 200, login.text
+    data = login.json()["data"]
+    assert data["token_type"] == "bearer"
+    assert data["user"]["role"] == "teacher"
+    access = data["access_token"]
+
     authorized = client.get(
-        "/exams", headers={"Authorization": f"Bearer {teacher_token}"}
+        "/exams", headers={"Authorization": f"Bearer {access}"}
     )
     assert authorized.status_code == 200
 
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {access}"})
+    assert me.status_code == 200
+    assert me.json()["data"]["email"] == "teacher@example.com"
 
-@pytest.mark.parametrize("algorithm", ["ES256", "RS256"])
-def test_asymmetric_jwks_verification_uses_cached_key(
-    client, monkeypatch, algorithm: str
-) -> None:
-    issuer = "https://project.supabase.co/auth/v1"
-    jwks_url = f"{issuer}/.well-known/jwks.json"
-    material_factory = (
-        _ec_signing_material if algorithm == "ES256" else _rsa_signing_material
+
+def test_login_rejects_wrong_password(client, secured) -> None:
+    _create_user("teacher@example.com", password="sup3r-secret-pw")
+    response = client.post(
+        "/auth/login",
+        json={"email": "teacher@example.com", "password": "not-the-password"},
     )
-    private_pem, public_jwk = material_factory("active-key")
-    monkeypatch.setattr(
-        auth,
-        "settings",
-        replace(
-            auth.settings,
-            auth_required=True,
-            supabase_url="https://project.supabase.co",
-            supabase_jwks_url=jwks_url,
-            supabase_jwt_secret=None,
-            supabase_jwt_audience=None,
-            supabase_jwt_issuer=issuer,
-        ),
-    )
-    fetch_count = 0
-
-    def fetch_jwks(_: str):
-        nonlocal fetch_count
-        fetch_count += 1
-        return (public_jwk,)
-
-    monkeypatch.setattr(auth, "_fetch_jwks", fetch_jwks)
-    token = _asymmetric_token(
-        private_pem,
-        kid="active-key",
-        issuer=issuer,
-        algorithm=algorithm,
-    )
-    headers = {"Authorization": f"Bearer {token}"}
-
-    assert client.get("/exams", headers=headers).status_code == 200
-    assert client.get("/exams", headers=headers).status_code == 200
-    assert fetch_count == 1
-
-
-def test_asymmetric_token_with_unknown_kid_is_rejected(client, monkeypatch) -> None:
-    issuer = "https://project.supabase.co/auth/v1"
-    private_pem, public_jwk = _rsa_signing_material("published-key")
-    monkeypatch.setattr(
-        auth,
-        "settings",
-        replace(
-            auth.settings,
-            auth_required=True,
-            supabase_jwks_url=f"{issuer}/.well-known/jwks.json",
-            supabase_jwt_secret=None,
-            supabase_jwt_audience=None,
-            supabase_jwt_issuer=issuer,
-        ),
-    )
-    monkeypatch.setattr(auth, "_fetch_jwks", lambda _: (public_jwk,))
-    token = _asymmetric_token(
-        private_pem,
-        kid="unpublished-key",
-        issuer=issuer,
-    )
-
-    response = client.get(
-        "/exams", headers={"Authorization": f"Bearer {token}"}
-    )
-
     assert response.status_code == 401
-    assert "not recognized" in response.json()["message"]
+    assert "Incorrect" in response.json()["message"]
 
 
-def test_asymmetric_key_fetch_failure_returns_503(client, monkeypatch) -> None:
-    issuer = "https://project.supabase.co/auth/v1"
-    jwks_url = f"{issuer}/.well-known/jwks.json"
-    private_pem, _ = _rsa_signing_material("active-key")
-    monkeypatch.setattr(
-        auth,
-        "settings",
-        replace(
-            auth.settings,
-            auth_required=True,
-            supabase_jwks_url=jwks_url,
-            supabase_jwt_secret=None,
-            supabase_jwt_audience=None,
-            supabase_jwt_issuer=issuer,
-        ),
-    )
-
-    original_get = httpx.Client.get
-
-    def fail_fetch(self, url, **kwargs):
-        if str(url) == jwks_url:
-            raise httpx.ConnectError(
-                "JWKS endpoint unavailable",
-                request=httpx.Request("GET", url),
-            )
-        return original_get(self, url, **kwargs)
-
-    monkeypatch.setattr(httpx.Client, "get", fail_fetch)
-    token = _asymmetric_token(
-        private_pem,
-        kid="active-key",
-        issuer=issuer,
-    )
-
-    response = client.get(
-        "/exams", headers={"Authorization": f"Bearer {token}"}
-    )
-
-    assert response.status_code == 503
-    assert response.json()["success"] is False
-    assert "unavailable" in response.json()["message"]
-
-
-def test_expired_token_is_rejected(client, monkeypatch) -> None:
-    secret = "test-secret-that-is-long-enough"
-    monkeypatch.setattr(
-        auth,
-        "settings",
-        replace(
-            auth.settings,
-            auth_required=True,
-            supabase_jwt_secret=secret,
-            supabase_jwt_audience=None,
-            supabase_jwt_issuer=None,
-        ),
-    )
+def test_expired_access_token_is_rejected(client, secured) -> None:
+    user = _create_user("teacher@example.com")
     expired = jwt.encode(
         {
-            "sub": "teacher-id",
+            "sub": str(user.id),
             "role": "teacher",
+            "type": "access",
             "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
         },
-        secret,
+        SECRET,
         algorithm="HS256",
     )
     response = client.get(
         "/exams", headers={"Authorization": f"Bearer {expired}"}
     )
     assert response.status_code == 401
-    assert "expired" in response.json()["message"].lower()
 
 
-def test_user_metadata_cannot_grant_a_privileged_role(client, monkeypatch) -> None:
-    secret = "test-secret-that-is-long-enough"
-    monkeypatch.setattr(
-        auth,
-        "settings",
-        replace(
-            auth.settings,
-            auth_required=True,
-            supabase_jwt_secret=secret,
-            supabase_jwt_audience=None,
-            supabase_jwt_issuer=None,
-        ),
-    )
-    token = jwt.encode(
+def test_refresh_token_is_a_non_access_token(client, secured) -> None:
+    # A token missing type=access must not be usable as a bearer credential.
+    user = _create_user("teacher@example.com")
+    wrong_type = jwt.encode(
         {
-            "sub": "unprivileged-user",
-            "role": "authenticated",
-            "user_metadata": {"role": "admin"},
+            "sub": str(user.id),
+            "role": "teacher",
+            "type": "refresh",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
         },
-        secret,
+        SECRET,
         algorithm="HS256",
     )
     response = client.get(
-        "/exams", headers={"Authorization": f"Bearer {token}"}
+        "/exams", headers={"Authorization": f"Bearer {wrong_type}"}
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_teacher_exam_ownership_and_admin_override(client, monkeypatch) -> None:
-    secret = "test-secret-that-is-long-enough"
+def test_refresh_rotates_and_old_token_is_revoked(client, secured) -> None:
+    _create_user("teacher@example.com", password="sup3r-secret-pw")
+    login = client.post(
+        "/auth/login",
+        json={"email": "teacher@example.com", "password": "sup3r-secret-pw"},
+    ).json()["data"]
+    first_refresh = login["refresh_token"]
+
+    rotated = client.post("/auth/refresh", json={"refresh_token": first_refresh})
+    assert rotated.status_code == 200, rotated.text
+    new_refresh = rotated.json()["data"]["refresh_token"]
+    assert new_refresh != first_refresh
+
+    # The rotated-away token can no longer be used.
+    reused = client.post("/auth/refresh", json={"refresh_token": first_refresh})
+    assert reused.status_code == 401
+
+
+def test_logout_revokes_the_refresh_token(client, secured) -> None:
+    _create_user("teacher@example.com", password="sup3r-secret-pw")
+    login = client.post(
+        "/auth/login",
+        json={"email": "teacher@example.com", "password": "sup3r-secret-pw"},
+    ).json()["data"]
+    refresh_token = login["refresh_token"]
+
+    assert client.post(
+        "/auth/logout", json={"refresh_token": refresh_token}
+    ).status_code == 200
+    assert client.post(
+        "/auth/refresh", json={"refresh_token": refresh_token}
+    ).status_code == 401
+
+
+def test_deactivated_account_cannot_use_a_live_access_token(client, secured) -> None:
+    user = _create_user("teacher@example.com")
+    headers = _headers(user)
+    assert client.get("/exams", headers=headers).status_code == 200
+
+    session = SessionLocal()
+    try:
+        db_user = session.get(User, user.id)
+        db_user.is_active = False
+        session.commit()
+    finally:
+        session.close()
+
+    assert client.get("/exams", headers=headers).status_code == 401
+
+
+def test_admin_login_requires_the_configured_password(client, secured) -> None:
+    ok = client.post("/auth/admin/login", json={"password": ADMIN_PASSWORD})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["data"]["user"]["role"] == "admin"
+    assert ok.json()["data"]["access_token"]
+
+    wrong = client.post("/auth/admin/login", json={"password": "nope-nope-nope"})
+    assert wrong.status_code == 401
+
+
+def test_admin_login_disabled_without_admin_password(client, monkeypatch) -> None:
     monkeypatch.setattr(
         auth,
         "settings",
-        replace(
-            auth.settings,
-            auth_required=True,
-            supabase_jwt_secret=secret,
-            supabase_jwt_audience=None,
-            supabase_jwt_issuer=None,
-        ),
+        replace(auth.settings, auth_required=True, auth_jwt_secret=SECRET, admin_password=None),
     )
-    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    response = client.post("/auth/admin/login", json={"password": "anything-long"})
+    assert response.status_code == 401
 
-    def headers(subject: str, role: str) -> dict[str, str]:
-        token = jwt.encode(
-            {
-                "sub": subject,
-                "app_metadata": {"role": role},
-                "exp": expiry,
-            },
-            secret,
-            algorithm="HS256",
-        )
-        return {"Authorization": f"Bearer {token}"}
 
-    teacher_a = headers("teacher-a", "teacher")
-    teacher_b = headers("teacher-b", "teacher")
-    admin = headers("admin-user", "admin")
+def test_only_admin_token_can_create_accounts(client, secured) -> None:
+    teacher = _create_user("teacher@example.com", role="teacher")
+
+    denied = client.post(
+        "/auth/users",
+        headers=_headers(teacher),
+        json={"email": "new@example.com", "password": "another-strong-pw"},
+    )
+    assert denied.status_code == 403
+
+    created = client.post(
+        "/auth/users",
+        headers=_admin_headers(),
+        json={"email": "new@example.com", "password": "another-strong-pw"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["data"]["email"] == "new@example.com"
+    assert created.json()["data"]["role"] == "teacher"
+
+    duplicate = client.post(
+        "/auth/users",
+        headers=_admin_headers(),
+        json={"email": "new@example.com", "password": "another-strong-pw"},
+    )
+    assert duplicate.status_code == 409
+
+
+def test_api_cannot_create_an_admin_account(client, secured) -> None:
+    response = client.post(
+        "/auth/users",
+        headers=_admin_headers(),
+        json={
+            "email": "second-admin@example.com",
+            "password": "another-strong-pw",
+            "role": "admin",
+        },
+    )
+    # The role literal only accepts "teacher"; an admin role is rejected.
+    assert response.status_code == 422, response.text
+
+
+def test_admin_lists_only_teacher_accounts(client, secured) -> None:
+    _create_user("teacher-a@example.com", role="teacher")
+    _create_user("teacher-b@example.com", role="teacher")
+
+    response = client.get("/auth/users", headers=_admin_headers())
+    assert response.status_code == 200, response.text
+    emails = {row["email"] for row in response.json()["data"]}
+    assert emails == {"teacher-a@example.com", "teacher-b@example.com"}
+
+
+def test_admin_deactivates_teacher_and_revokes_sessions(client, secured) -> None:
+    teacher = _create_user("teacher@example.com", role="teacher")
+
+    login = client.post(
+        "/auth/login",
+        json={"email": "teacher@example.com", "password": "sup3r-secret-pw"},
+    )
+    assert login.status_code == 200, login.text
+    refresh_token = login.json()["data"]["refresh_token"]
+
+    updated = client.patch(
+        f"/auth/users/{teacher.id}",
+        headers=_admin_headers(),
+        json={"is_active": False},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["data"]["is_active"] is False
+
+    # The teacher's outstanding refresh token was revoked on deactivation.
+    refreshed = client.post(
+        "/auth/refresh", json={"refresh_token": refresh_token}
+    )
+    assert refreshed.status_code == 401
+    # And they can no longer sign in.
+    relogin = client.post(
+        "/auth/login",
+        json={"email": "teacher@example.com", "password": "sup3r-secret-pw"},
+    )
+    assert relogin.status_code == 401
+
+
+def test_admin_session_refreshes_and_survives_without_a_db_row(client, secured) -> None:
+    login = client.post(
+        "/auth/admin/login", json={"password": ADMIN_PASSWORD}
+    ).json()["data"]
+    refreshed = client.post(
+        "/auth/refresh", json={"refresh_token": login["refresh_token"]}
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    new_access = refreshed.json()["data"]["access_token"]
+    # The refreshed admin token still authorizes admin-only routes.
+    assert client.get(
+        "/auth/users", headers={"Authorization": f"Bearer {new_access}"}
+    ).status_code == 200
+
+
+def test_teacher_cannot_manage_accounts(client, secured) -> None:
+    teacher = _create_user("teacher@example.com", role="teacher")
+    target = _create_user("target@example.com", role="teacher")
+
+    assert client.get("/auth/users", headers=_headers(teacher)).status_code == 403
+    assert client.patch(
+        f"/auth/users/{target.id}",
+        headers=_headers(teacher),
+        json={"is_active": False},
+    ).status_code == 403
+
+
+def test_teacher_exam_ownership_and_admin_override(client, secured) -> None:
+    teacher_a = _headers(_create_user("a@example.com", role="teacher"))
+    teacher_b = _headers(_create_user("b@example.com", role="teacher"))
+    admin = _admin_headers()
+
     created = client.post(
         "/exams",
         headers=teacher_a,
@@ -419,127 +409,5 @@ def test_teacher_exam_ownership_and_admin_override(client, monkeypatch) -> None:
     assert client.get(
         f"/exams/{exam_id}/answer-key", headers=teacher_b
     ).status_code == 404
-    assert client.get(
-        f"/exams/{exam_id}/results", headers=teacher_b
-    ).status_code == 404
-    assert client.get(
-        f"/exams/{exam_id}/results/export", headers=teacher_b
-    ).status_code == 404
-    assert client.delete(f"/exams/{exam_id}", headers=teacher_b).status_code == 404
     assert client.get(f"/exams/{exam_id}", headers=admin).status_code == 200
     assert client.delete(f"/exams/{exam_id}", headers=admin).status_code == 200
-
-
-def test_student_roll_numbers_are_tenant_scoped_and_results_are_snapshotted(
-    client, make_sheet, monkeypatch
-) -> None:
-    secret = "test-secret-that-is-long-enough"
-    monkeypatch.setattr(
-        auth,
-        "settings",
-        replace(
-            auth.settings,
-            auth_required=True,
-            supabase_jwt_secret=secret,
-            supabase_jwt_audience=None,
-            supabase_jwt_issuer=None,
-        ),
-    )
-    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
-
-    def headers(subject: str) -> dict[str, str]:
-        token = jwt.encode(
-            {
-                "sub": subject,
-                "app_metadata": {"role": "teacher"},
-                "exp": expiry,
-            },
-            secret,
-            algorithm="HS256",
-        )
-        return {"Authorization": f"Bearer {token}"}
-
-    teacher_a = headers("tenant-a")
-    teacher_b = headers("tenant-b")
-
-    def create_exam(owner_headers: dict[str, str], name: str) -> str:
-        created = client.post(
-            "/exams",
-            headers=owner_headers,
-            json={
-                "name": name,
-                "total_questions": 10,
-                "options_per_question": 4,
-            },
-        )
-        assert created.status_code == 201
-        exam_id = created.json()["data"]["id"]
-        answers = {
-            str(question): "ABCD"[(question - 1) % 4]
-            for question in range(1, 11)
-        }
-        assert client.post(
-            f"/exams/{exam_id}/answer-key/manual",
-            headers=owner_headers,
-            json={"answers": answers},
-        ).status_code == 200
-        return exam_id
-
-    exam_a = create_exam(teacher_a, "Tenant A Exam")
-    exam_b = create_exam(teacher_b, "Tenant B Exam")
-    sheet = make_sheet([0, 1, 2, 3, 0, 1, 2, 3, 0, 1])
-
-    def scan(
-        exam_id: str,
-        owner_headers: dict[str, str],
-        *,
-        name: str,
-        class_name: str,
-    ) -> dict[str, object]:
-        with sheet.open("rb") as image:
-            response = client.post(
-                f"/exams/{exam_id}/scan",
-                headers=owner_headers,
-                files={"files": ("student.png", image, "image/png")},
-                data={
-                    "metadata": json.dumps(
-                        [
-                            {
-                                "name": name,
-                                "roll_number": "SHARED-001",
-                                "class_name": class_name,
-                            }
-                        ]
-                    )
-                },
-            )
-        assert response.status_code == 200, response.text
-        return response.json()["data"]["results"][0]
-
-    first_a = scan(exam_a, teacher_a, name="Alice", class_name="A-Class")
-    first_b = scan(exam_b, teacher_b, name="Bob", class_name="B-Class")
-    assert first_a["student"]["name"] == "Alice"
-    assert first_b["student"]["name"] == "Bob"
-    assert first_a["student"]["id"] != first_b["student"]["id"]
-
-    second_a = scan(
-        exam_a,
-        teacher_a,
-        name="Alice Updated",
-        class_name="A-Class-Updated",
-    )
-    assert second_a["student"]["name"] == "Alice Updated"
-    historical_a = client.get(
-        f"/results/{first_a['id']}", headers=teacher_a
-    ).json()["data"]
-    assert historical_a["student"]["name"] == "Alice"
-    assert historical_a["student"]["class_name"] == "A-Class"
-
-    tenant_b_results = client.get(
-        f"/exams/{exam_b}/results", headers=teacher_b
-    ).json()["data"]["results"]
-    assert len(tenant_b_results) == 1
-    assert tenant_b_results[0]["student"]["name"] == "Bob"
-    assert client.get(
-        f"/results/{first_b['id']}", headers=teacher_a
-    ).status_code == 404
