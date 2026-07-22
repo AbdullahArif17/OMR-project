@@ -25,7 +25,6 @@ const allowDemo = process.env.NEXT_PUBLIC_ALLOW_DEMO === "true";
 
 export interface AuthUser {
   id: string;
-  email: string;
   name: string;
   role: string;
   isDemo: boolean;
@@ -33,7 +32,6 @@ export interface AuthUser {
 
 interface StoredSession {
   accessToken: string;
-  refreshToken: string;
   user: AuthUser;
 }
 
@@ -41,20 +39,18 @@ interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   allowDemo: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
+  signIn: (password: string) => Promise<void>;
+  signOut: () => void;
   continueInDemo: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function mapUser(account: AccountUser): AuthUser {
-  const email = account.email || "teacher@school.local";
   return {
     id: account.id,
-    email,
-    name: account.name?.trim() || email.split("@")[0],
-    role: account.role || "teacher",
+    name: account.name?.trim() || "Admin",
+    role: "admin",
     isDemo: false,
   };
 }
@@ -62,7 +58,6 @@ function mapUser(account: AccountUser): AuthUser {
 function toSession(payload: TokenPayload): StoredSession {
   return {
     accessToken: payload.access_token,
-    refreshToken: payload.refresh_token,
     user: mapUser(payload.user),
   };
 }
@@ -72,7 +67,7 @@ function readStoredSession(): StoredSession | null {
     const raw = window.localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredSession>;
-    if (parsed.accessToken && parsed.refreshToken && parsed.user) {
+    if (parsed.accessToken && parsed.user) {
       return parsed as StoredSession;
     }
   } catch {
@@ -82,17 +77,15 @@ function readStoredSession(): StoredSession | null {
 }
 
 const demoUser: AuthUser = {
-  id: "local-demo-teacher",
-  email: "teacher@demo.local",
-  name: "Demo Teacher",
-  role: "teacher",
+  id: "local-demo-admin",
+  name: "Demo Admin",
+  role: "admin",
   isDemo: true,
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
-  // A ref backs the synchronous token accessor used by the axios interceptors.
   const sessionRef = useRef<StoredSession | null>(null);
 
   const persist = useCallback((session: StoredSession | null) => {
@@ -112,44 +105,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setAccessTokenProvider(() => sessionRef.current?.accessToken ?? null);
-    // On a 401 the client asks us to rotate the refresh token once; failure
-    // clears the session so the user is bounced to the sign-in screen.
+    // On a 401 we just log out since there's no refresh token
     setUnauthorizedHandler(async () => {
-      const current = sessionRef.current;
-      if (!current) return null;
-      try {
-        const rotated = toSession(await api.refreshSession(current.refreshToken));
-        persist(rotated);
-        setUser(rotated.user);
-        return rotated.accessToken;
-      } catch {
-        clearSession();
-        return null;
-      }
+      clearSession();
+      return null;
     });
 
     let mounted = true;
-    async function bootstrap() {
+    function bootstrap() {
       if (allowDemo && window.localStorage.getItem(DEMO_SESSION_KEY) === "active") {
         if (mounted) setUser(demoUser);
+        if (mounted) setLoading(false);
         return;
       }
       const stored = readStoredSession();
-      if (!stored) return;
-      // Rotate on load so a resumed session never rides a stale refresh token.
-      try {
-        const rotated = toSession(await api.refreshSession(stored.refreshToken));
-        if (!mounted) return;
-        persist(rotated);
-        setUser(rotated.user);
-      } catch {
-        if (mounted) clearSession();
+      if (stored) {
+        persist(stored);
+        if (mounted) setUser(stored.user);
       }
+      if (mounted) setLoading(false);
     }
 
-    void bootstrap().finally(() => {
-      if (mounted) setLoading(false);
-    });
+    bootstrap();
 
     return () => {
       mounted = false;
@@ -158,27 +135,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearSession, persist]);
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
+    async (password: string) => {
       try {
-        const session = toSession(await api.login(email, password));
+        const session = toSession(await api.adminLogin(password));
         persist(session);
         setUser(session.user);
       } catch (error) {
-        throw new Error(getApiError(error, "Sign in failed. Please try again."));
+        throw new Error(getApiError(error, "Sign in failed. Please check your password."));
       }
     },
     [persist],
   );
 
-  const signOut = useCallback(async () => {
-    const current = sessionRef.current;
-    if (current) {
-      try {
-        await api.logout(current.refreshToken);
-      } catch {
-        // best effort: revoke server-side but always clear locally
-      }
-    }
+  const signOut = useCallback(() => {
     clearSession();
   }, [clearSession]);
 

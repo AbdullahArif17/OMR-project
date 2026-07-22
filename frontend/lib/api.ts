@@ -5,7 +5,6 @@ import type {
   AnswerMap,
   ApiEnvelope,
   CreateExamInput,
-  CreateTeacherInput,
   Exam,
   Result,
   ResultsPayload,
@@ -128,30 +127,13 @@ export function getApiError(error: unknown, fallback = "Something went wrong. Pl
 export const api = {
   baseUrl: apiUrl,
 
-  async login(email: string, password: string) {
+  async adminLogin(password: string) {
     const response = await client.post<ApiEnvelope<TokenPayload>>(
-      "/auth/login",
-      { email, password },
+      "/auth/admin/login",
+      { password },
       { skipAuth: true } as RetryableConfig,
     );
     return unwrap(response.data);
-  },
-
-  async refreshSession(refreshToken: string) {
-    const response = await client.post<ApiEnvelope<TokenPayload>>(
-      "/auth/refresh",
-      { refresh_token: refreshToken },
-      { skipAuth: true } as RetryableConfig,
-    );
-    return unwrap(response.data);
-  },
-
-  async logout(refreshToken: string) {
-    await client.post(
-      "/auth/logout",
-      { refresh_token: refreshToken },
-      { skipAuth: true } as RetryableConfig,
-    );
   },
 
   async me() {
@@ -159,27 +141,7 @@ export const api = {
     return unwrap(response.data);
   },
 
-  async listTeachers() {
-    const response = await client.get<ApiEnvelope<AccountUser[]>>("/auth/users");
-    return unwrap(response.data);
-  },
 
-  async createTeacher(input: CreateTeacherInput) {
-    const response = await client.post<ApiEnvelope<AccountUser>>("/auth/users", {
-      email: input.email,
-      password: input.password,
-      name: input.name?.trim() || undefined,
-    });
-    return unwrap(response.data);
-  },
-
-  async setTeacherActive(userId: string, isActive: boolean) {
-    const response = await client.patch<ApiEnvelope<AccountUser>>(
-      `/auth/users/${userId}`,
-      { is_active: isActive },
-    );
-    return unwrap(response.data);
-  },
 
   async listExams() {
     const response = await client.get<ApiEnvelope<Exam[]> | Exam[]>("/exams");

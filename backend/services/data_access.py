@@ -13,8 +13,6 @@ from schemas import StudentMetadata
 
 
 def ensure_exam_access(exam: Exam, user: AuthUser) -> Exam:
-    if user.role != "admin" and exam.created_by != user.subject:
-        raise HTTPException(status_code=404, detail="Exam not found")
     return exam
 
 
@@ -106,19 +104,17 @@ def load_answer_key(db: Session, exam: Exam) -> dict[int, str]:
 
 
 def resolve_student(
-    db: Session, metadata: StudentMetadata, *, owner_subject: str
+    db: Session, metadata: StudentMetadata
 ) -> Student:
     student: Student | None = None
     if metadata.roll_number:
         student = db.scalar(
             select(Student).where(
-                Student.created_by == owner_subject,
                 Student.roll_number == metadata.roll_number,
             )
         )
     if student is None:
         student = Student(
-            created_by=owner_subject,
             name=metadata.name,
             roll_number=metadata.roll_number,
             class_name=metadata.class_name,

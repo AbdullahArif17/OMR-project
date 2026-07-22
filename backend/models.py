@@ -28,75 +28,7 @@ from database import Base
 json_type = JSON().with_variant(JSONB(), "postgresql")
 
 
-class User(Base):
-    """An account that can sign in and own exams/results.
 
-    ``id`` is what lands in ``created_by``/``owner_subject`` on the other
-    tables, replacing the Supabase ``sub`` claim used previously.  Accounts are
-    created by an admin (or the startup bootstrap), never by public signup.
-    """
-
-    __tablename__ = "users"
-    __table_args__ = (
-        CheckConstraint("role IN ('teacher', 'admin')", name="role_values"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    email: Mapped[str] = mapped_column(
-        String(320), nullable=False, unique=True, index=True
-    )
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    name: Mapped[str | None] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="teacher", server_default="teacher"
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=true()
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-    refresh_tokens: Mapped[list[RefreshToken]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
-    )
-
-
-class RefreshToken(Base):
-    """A hashed, revocable refresh token for one login session.
-
-    Only the SHA-256 of the opaque token is stored, so a database leak cannot
-    be replayed.  Rotation revokes the previous row and inserts a new one; a
-    reused (already-rotated) token is treated as compromise.
-    """
-
-    __tablename__ = "refresh_tokens"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    token_hash: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True, index=True
-    )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-    user: Mapped[User] = relationship(back_populates="refresh_tokens")
 
 
 class Exam(Base):
@@ -121,7 +53,6 @@ class Exam(Base):
     options_per_question: Mapped[int] = mapped_column(
         Integer, nullable=False, default=4, server_default="4"
     )
-    created_by: Mapped[str | None] = mapped_column(String(255), index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -162,13 +93,12 @@ class AnswerKey(Base):
 class Student(Base):
     __tablename__ = "students"
     __table_args__ = (
-        UniqueConstraint("created_by", "roll_number", name="owner_roll_number"),
+        UniqueConstraint("roll_number", name="uq_roll_number"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    created_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String(255))
     roll_number: Mapped[str | None] = mapped_column(String(50), index=True)
     class_name: Mapped[str | None] = mapped_column("class", String(50))

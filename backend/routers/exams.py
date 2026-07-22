@@ -34,7 +34,6 @@ def create_exam(
         subject=payload.subject,
         total_questions=payload.total_questions,
         options_per_question=payload.options_per_question,
-        created_by=user.subject,
     )
     try:
         db.add(exam)
@@ -52,8 +51,6 @@ def list_exams(
     user: AuthorizedUser,
 ) -> dict[str, object]:
     statement = select(Exam)
-    if user.role != "admin":
-        statement = statement.where(Exam.created_by == user.subject)
     exams = db.scalars(statement.order_by(Exam.created_at.desc())).all()
     return {"success": True, "data": exams, "message": "Exams retrieved"}
 

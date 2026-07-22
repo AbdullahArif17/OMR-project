@@ -64,32 +64,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) router.replace("/");
+    if (!loading && !user) router.replace("/admin");
   }, [loading, router, user]);
 
   async function handleSignOut() {
     setSigningOut(true);
     await signOut();
-    router.replace("/");
+    router.replace("/admin");
   }
 
   if (loading || !user) {
     return (
       <main className="grid min-h-screen place-items-center bg-canvas">
         <div className="text-center text-brand-600"><Spinner className="h-7 w-7" /><p className="mt-4 text-sm font-bold text-slate-500">Preparing your workspace…</p></div>
-      </main>
-    );
-  }
-
-  if (!user.isDemo && !["teacher", "admin"].includes(user.role.toLowerCase())) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-canvas px-5">
-        <div className="surface-card w-full max-w-md p-8 text-center">
-          <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-700"><ShieldIcon size={26} /></span>
-          <h1 className="mt-5 text-xl font-black text-slate-950">Teacher access required</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-500">Your account is signed in, but it does not have a trusted teacher or admin role. Ask an administrator to update your account role.</p>
-          <button className="button-secondary mt-6 w-full" disabled={signingOut} onClick={handleSignOut} type="button">{signingOut ? <><Spinner className="h-4 w-4" /> Signing out…</> : <><LogoutIcon size={17} /> Sign out</>}</button>
-        </div>
       </main>
     );
   }
@@ -122,7 +109,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="flex-1 overflow-y-auto"><WorkspaceNavigation onNavigate={() => setMobileOpen(false)} /></div>
             <div className="border-t border-slate-200 pt-4">
               {user.isDemo && <div className="mb-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700"><ShieldIcon size={16} /> Local demo auth</div>}
-              <div className="flex items-center gap-3 px-2"><span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-100 text-sm font-black text-brand-700">{getInitials(user.name)}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{user.name}</p><p className="truncate text-xs text-slate-500">{user.email}</p></div><button aria-label="Sign out" className="grid h-10 w-10 place-items-center rounded-xl text-slate-500 hover:bg-rose-50 hover:text-rose-600" onClick={handleSignOut} type="button"><LogoutIcon /></button></div>
+              <div className="flex items-center gap-3 px-2"><span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-100 text-sm font-black text-brand-700">{getInitials(user.name)}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{user.name}</p><p className="truncate text-xs text-slate-500">{user.role}</p></div><button aria-label="Sign out" className="grid h-10 w-10 place-items-center rounded-xl text-slate-500 hover:bg-rose-50 hover:text-rose-600" onClick={handleSignOut} type="button"><LogoutIcon /></button></div>
             </div>
           </aside>
         </div>

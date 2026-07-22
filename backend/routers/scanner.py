@@ -57,7 +57,6 @@ class ScanReadContext:
     exam_id: uuid.UUID
     total_questions: int
     options_per_question: int
-    owner_subject: str
     answer_key: dict[int, str]
     cached_response: CachedScanResponse | None
 
@@ -143,7 +142,6 @@ def _load_scan_context(
             exam_id=exam.id,
             total_questions=exam.total_questions,
             options_per_question=exam.options_per_question,
-            owner_subject=exam.created_by or user.subject,
             answer_key=answer_key,
             cached_response=cached_response,
         )
@@ -176,7 +174,6 @@ def _persist_pending_result(
     db: Session,
     *,
     exam_id: uuid.UUID,
-    owner_subject: str,
     pending: PendingScanResult,
 ) -> Result:
     metadata = StudentMetadata(
@@ -184,7 +181,7 @@ def _persist_pending_result(
         roll_number=pending.student_roll_number,
         class_name=pending.student_class_name,
     )
-    student = resolve_student(db, metadata, owner_subject=owner_subject)
+    student = resolve_student(db, metadata)
     result = Result(
         exam_id=exam_id,
         student_id=student.id,
@@ -411,7 +408,6 @@ def _persist_scan_batch(
         if (
             exam.total_questions != context.total_questions
             or exam.options_per_question != context.options_per_question
-            or (exam.created_by or user.subject) != context.owner_subject
         ):
             raise _exam_changed_error(
                 errors,
@@ -429,7 +425,6 @@ def _persist_scan_batch(
             result = _persist_pending_result(
                 db,
                 exam_id=context.exam_id,
-                owner_subject=context.owner_subject,
                 pending=pending,
             )
             persisted_results.append(ResultRead.model_validate(result))
