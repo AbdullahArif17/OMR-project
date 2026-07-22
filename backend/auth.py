@@ -10,8 +10,8 @@ from typing import Annotated, Any
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import jwt
-from jose.exceptions import JWTError
+import jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -118,7 +118,7 @@ def _decode_access_token(token: str) -> dict[str, Any]:
             token,
             _signing_secret(),
             algorithms=[settings.auth_jwt_algorithm],
-            options={"require_exp": True, "require_sub": True},
+            options={"require": ["exp", "sub"]},
         )
     except JWTError as exc:
         raise _authentication_error() from exc
@@ -155,7 +155,7 @@ def is_admin_refresh_token(token: str) -> bool:
             token,
             _signing_secret(),
             algorithms=[settings.auth_jwt_algorithm],
-            options={"require_exp": True, "require_sub": True},
+            options={"require": ["exp", "sub"]},
         )
     except JWTError:
         return False

@@ -90,6 +90,24 @@ class RequestBodyLimitMiddleware:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _run_maintenance():
+        from services.storage_maintenance import run_storage_maintenance
+        try:
+            report = run_storage_maintenance()
+            logger.info(
+                "Startup maintenance: deleted %d workspaces, %d orphan uploads, %d idempotency records",
+                report.workspaces_deleted,
+                report.orphan_uploads_deleted,
+                report.idempotency_records_deleted,
+            )
+        except Exception:
+            logger.exception("Storage maintenance failed during startup")
+            
+    if settings.environment != "test":
+        import threading
+        threading.Thread(target=_run_maintenance, daemon=True, name="startup-maintenance").start()
+    
     yield
 
 
@@ -161,6 +179,12 @@ async def request_safety_and_logging(request: Request, call_next):
     elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    if settings.environment == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["Cache-Control"] = (
         "no-store" if request.url.path != "/health/live" else "no-cache"
     )

@@ -91,9 +91,16 @@ The interactive API reference is available at `http://localhost:8000/docs` outsi
 
 Authentication is built into the API. Accounts sign in with email and password; the backend issues a short-lived HS256 access token plus a rotating refresh token, both stored in Neon (refresh tokens are stored hashed and revocable). Set `AUTH_JWT_SECRET` in `backend/.env` to a strong random value of at least 32 characters.
 
-There is exactly one admin, seeded from `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`: on startup, when the users table is empty, the admin is created from those values. The API only ever creates `teacher` accounts, so a second admin cannot be added through it. Teachers can access only exams they created; the admin can access all exams.
+There is exactly one admin, and it is NOT a database account. The admin authenticates using the shared `ADMIN_PASSWORD` (no email, no user record). Teachers can access only exams they created; the admin can access all exams.
 
-The admin manages teacher accounts from an unlinked console at `/admin`. It is not linked from the app and is excluded from indexing, but it is not secret: it still requires signing in with the admin credentials, and non-admin accounts are refused. From there the admin can create teachers and enable or disable their access (disabling immediately revokes any active session). New teachers sign in on the main site.
+The admin manages teacher accounts from an unlinked console at `/admin`. It is not linked from the app and is excluded from indexing, but it is not secret: it still requires signing in with the admin password. From there the admin can create teachers and enable or disable their access (disabling immediately revokes any active session). New teachers sign in on the main site.
+
+## Security considerations
+
+- **Credential rotation**: Rotating `AUTH_JWT_SECRET` invalidates all sessions. Rotating `ADMIN_PASSWORD` invalidates any active admin session.
+- **HTTPS**: In production, HTTPS is strictly enforced. The backend refuses to start without secure origins in `CORS_ORIGINS`.
+- **Upload storage**: Uploads and results contain sensitive educational records. Ensure the configured `UPLOAD_DIR` has restricted file permissions and is securely backed up.
+- **Admin console**: The `/admin` URL is not a secret, but the `ADMIN_PASSWORD` is the only gate. Keep it strong (≥ 12 chars required).
 
 For a deliberately unauthenticated local demo, set the backend's `AUTH_REQUIRED=false` and `NEXT_PUBLIC_ALLOW_DEMO=true` in the frontend. Never use demo mode in a public deployment.
 

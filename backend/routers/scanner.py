@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import uuid
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial
@@ -840,15 +841,29 @@ async def scan_student_sheets(
                         expanded_index=expanded_index,
                     )
                     try:
-                        detected_answers = await run_in_threadpool(
-                            detect_answers,
-                            sheet.path,
-                            scan_context.total_questions,
-                            scan_context.options_per_question,
+                        detect_task = asyncio.create_task(
+                            run_in_threadpool(
+                                detect_answers,
+                                sheet.path,
+                                scan_context.total_questions,
+                                scan_context.options_per_question,
+                            )
                         )
+                        detected_answers = await asyncio.wait_for(detect_task, timeout=20.0)
                         grading = grade_answers(
                             detected_answers, scan_context.answer_key
                         )
+                    except asyncio.TimeoutError:
+                        errors.append(
+                            _scan_error(
+                                filename=display_filename,
+                                message="Image processing timed out; the sheet may be too complex",
+                                stage="detection",
+                                status_code=422,
+                            )
+                        )
+                        failure_statuses.add(422)
+                        continue
                     except OMRProcessingError as exc:
                         errors.append(
                             _scan_error(

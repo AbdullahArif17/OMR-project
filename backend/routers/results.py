@@ -66,7 +66,7 @@ def _grade(percentage: float) -> str:
 
 def _csv_safe(value: object | None) -> str:
     text = "" if value is None else str(value)
-    if text.startswith(("=", "+", "-", "@")):
+    if text.startswith(("=", "+", "-", "@", "\t", "\r")):
         return "'" + text
     return text
 

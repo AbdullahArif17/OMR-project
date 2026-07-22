@@ -117,7 +117,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <div className="mb-2 flex items-center justify-between"><label className="text-sm font-semibold text-slate-700" htmlFor="password">Password</label></div>
-                    <div className="relative"><LockIcon className="pointer-events-none absolute left-3.5 top-3.5 text-slate-400" size={18} /><input autoComplete="current-password" className="text-field pl-11" id="password" minLength={6} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} /></div>
+                    <div className="relative"><LockIcon className="pointer-events-none absolute left-3.5 top-3.5 text-slate-400" size={18} /><input autoComplete="current-password" className="text-field pl-11" id="password" minLength={12} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} /></div>
                   </div>
                   <button className="button-primary w-full" disabled={submitting} type="submit">{submitting ? <><Spinner /> Signing in…</> : <>Sign in securely <ArrowRightIcon size={17} /></>}</button>
                   <p className="text-center text-xs leading-5 text-slate-400">Access is managed by your school administrator.</p>

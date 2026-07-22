@@ -11,7 +11,7 @@ Copy `backend/.env.example` to a secret-managed production environment and set:
 - `DATABASE_URL_DIRECT` to the Neon direct connection, available only to the migration job
 - `AUTH_REQUIRED=true`
 - `AUTH_JWT_SECRET` to a strong random value of at least 32 characters (e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`)
-- `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` for the first release only, to seed an initial admin when the users table is empty; clear them afterward
+- `ADMIN_PASSWORD` to a strong password (≥12 chars) to enable the admin console at `/admin`
 - `CORS_ORIGINS` to the exact HTTPS frontend origin
 - `TRUSTED_HOSTS` to the API hostname without a scheme or path
 - `UPLOAD_DIR=/app/uploads`

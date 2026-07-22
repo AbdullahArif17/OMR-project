@@ -576,6 +576,8 @@ def detect_answers(
         raise OMRProcessingError("The uploaded image is invalid or unreadable")
     image = _resize_for_analysis(image)
     image = _resize_for_analysis(_rectify_page(image))
+    if image.shape[0] * image.shape[1] > 25000000:
+        raise OMRProcessingError("The image requires too much memory to process safely")
     normalized_grayscale, candidate_binary, mark_binary = _prepare_thresholds(image)
 
     bubbles = _candidate_bubbles(candidate_binary)

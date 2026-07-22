@@ -67,6 +67,9 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
+    if settings.environment == "production":
+        raise RuntimeError("init_db() is for development only. Use Alembic migrations in production.")
+
     import models  # noqa: F401
 
     if settings.database_url_direct == settings.database_url:
