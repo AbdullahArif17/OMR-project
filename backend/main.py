@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from config import settings
@@ -121,10 +120,7 @@ app = FastAPI(
     openapi_url=None if settings.environment == "production" else "/openapi.json",
 )
 
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=list(settings.trusted_hosts),
-)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
