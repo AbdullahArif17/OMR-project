@@ -157,7 +157,7 @@ def test_detect_answers_from_real_contours(
 
     detected = detect_answers(sheet, 10, option_count)
 
-    assert detected == {
+    assert detected.answers == {
         question: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[answer]
         for question, answer in enumerate(selected, start=1)
     }
@@ -196,7 +196,7 @@ def test_detect_answers_survives_moderate_capture_transformations(
 
     detected = detect_answers(transformed, 10, option_count)
 
-    assert detected == {
+    assert detected.answers == {
         question: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[answer]
         for question, answer in enumerate(selected, start=1)
     }

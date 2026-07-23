@@ -166,7 +166,7 @@ async def save_scanned_answer_key(
                 )
             except OMRProcessingError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
-            answers = validate_complete_answer_key(exam, detected)
+            answers = validate_complete_answer_key(exam, detected.answers)
             replace_answer_key(db, exam, answers)
     finally:
         discard_upload(stored)

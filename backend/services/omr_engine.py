@@ -60,6 +60,13 @@ class Bubble:
         return math.sqrt(self.width * self.height)
 
 
+@dataclass(frozen=True, slots=True)
+class ScanExtractedData:
+    answers: dict[int, str]
+    roll_number: str | None
+    student_name: str | None
+
+
 def _resize_for_analysis(image: np.ndarray) -> np.ndarray:
     height, width = image.shape[:2]
     longest_side = max(height, width)
@@ -317,6 +324,142 @@ def _estimate_grid_angle(bubbles: list[Bubble]) -> float:
     return estimated_angle if abs(estimated_angle) <= 20 else 0.0
 
 
+def _cluster_bubbles(bubbles: list[Bubble]) -> list[list[Bubble]]:
+    """Split bubbles into separate grid clusters.
+
+    First tries spatial-distance flood fill.  If that yields only a single
+    cluster, falls back to detecting consistent large X-gaps across rows to
+    split column groups (handles grids placed side-by-side at the same Y
+    positions).
+    """
+    if not bubbles:
+        return []
+    median_diameter = float(np.median([b.diameter for b in bubbles]))
+    threshold = median_diameter * 1.6
+
+    # --- Pass 1: distance-based flood fill ---
+    clusters: list[list[Bubble]] = []
+    visited = set()
+    for i, bubble in enumerate(bubbles):
+        if i in visited:
+            continue
+        cluster = [bubble]
+        visited.add(i)
+        queue = [i]
+        while queue:
+            current = queue.pop(0)
+            curr_b = bubbles[current]
+            for j, other in enumerate(bubbles):
+                if j not in visited:
+                    dist = math.hypot(
+                        curr_b.center_x - other.center_x,
+                        curr_b.center_y - other.center_y,
+                    )
+                    if dist <= threshold:
+                        visited.add(j)
+                        queue.append(j)
+                        cluster.append(other)
+        clusters.append(cluster)
+
+    if len(clusters) > 1:
+        return clusters
+
+    # --- Pass 2: X-gap column-group splitting ---
+    # When all bubbles form one cluster (e.g. after page rectification
+    # tightly crops grids that share the same row positions), detect
+    # significant X-gaps within rows to split into column groups.
+    rows = _group_rows(bubbles)
+    if len(rows) < 2:
+        return clusters
+
+    normal_gap = median_diameter * 1.35
+    gap_threshold = median_diameter * 2.5  # gaps larger than this are "splits"
+
+    # Collect X-gap split positions across all rows
+    split_xs: list[float] = []
+    for row in rows:
+        if len(row) < 2:
+            continue
+        sorted_row = sorted(row, key=lambda b: b.position_x)
+        for k in range(len(sorted_row) - 1):
+            gap = sorted_row[k + 1].position_x - sorted_row[k].position_x
+            if gap > gap_threshold:
+                midpoint = (
+                    sorted_row[k].position_x + sorted_row[k + 1].position_x
+                ) / 2
+                split_xs.append(midpoint)
+
+    if not split_xs:
+        # Also try Y-gap splitting for vertically stacked grids
+        return _cluster_by_y_gaps(rows, median_diameter)
+
+    # Cluster the split X-positions to find consistent column boundaries
+    split_xs.sort()
+    boundaries: list[float] = [split_xs[0]]
+    for sx in split_xs[1:]:
+        if sx - boundaries[-1] > median_diameter:
+            boundaries.append(sx)
+        else:
+            boundaries[-1] = (boundaries[-1] + sx) / 2
+
+    # Assign bubbles to column groups based on boundaries
+    n_groups = len(boundaries) + 1
+    col_groups: list[list[Bubble]] = [[] for _ in range(n_groups)]
+    for bubble in bubbles:
+        group_idx = 0
+        for bx in boundaries:
+            if bubble.position_x > bx:
+                group_idx += 1
+            else:
+                break
+        col_groups[group_idx].append(bubble)
+
+    # Further split each column group by Y-gaps (handles roll + questions
+    # stacked vertically in the same column group)
+    final_clusters: list[list[Bubble]] = []
+    for group in col_groups:
+        if not group:
+            continue
+        sub_rows = _group_rows(group)
+        sub_clusters = _cluster_by_y_gaps(sub_rows, median_diameter)
+        final_clusters.extend(sub_clusters)
+
+    return final_clusters if len(final_clusters) > 1 else clusters
+
+
+def _cluster_by_y_gaps(
+    rows: list[list[Bubble]], median_diameter: float
+) -> list[list[Bubble]]:
+    """Split pre-grouped rows into clusters based on large Y-gaps."""
+    if len(rows) <= 1:
+        flat = [bubble for row in rows for bubble in row]
+        return [flat] if flat else []
+
+    row_centers = [
+        float(np.mean([b.position_y for b in row])) for row in rows
+    ]
+    row_gaps = [
+        row_centers[i + 1] - row_centers[i] for i in range(len(row_centers) - 1)
+    ]
+    if not row_gaps:
+        return [[bubble for row in rows for bubble in row]]
+
+    median_row_gap = float(np.median(row_gaps))
+    split_threshold = max(median_row_gap * 2.0, median_diameter * 3.0)
+
+    clusters: list[list[Bubble]] = []
+    current: list[Bubble] = []
+    for i, row in enumerate(rows):
+        current.extend(row)
+        if i < len(row_gaps) and row_gaps[i] > split_threshold:
+            clusters.append(current)
+            current = []
+    if current:
+        clusters.append(current)
+
+    return clusters
+
+
 def _align_grid_coordinates(bubbles: list[Bubble]) -> list[Bubble]:
     angle = math.radians(_estimate_grid_angle(bubbles))
     cosine = math.cos(angle)
@@ -561,11 +704,40 @@ def _mark_score(
     return float(0.72 * binary_ratio + 0.28 * darkness)
 
 
+def _decode_metadata_grid(
+    rows: list[list[Bubble]],
+    mark_binary: np.ndarray,
+    normalized_grayscale: np.ndarray,
+    chars: str,
+    empty_baseline: float,
+    minimum_fill: float,
+) -> str:
+    if not rows or len(rows) != len(chars):
+        return ""
+    columns_count = min(len(row) for row in rows)
+    result = []
+    for col in range(columns_count):
+        best_char = ' '
+        best_score = -1.0
+        for row_idx, row in enumerate(rows):
+            bubble = row[col]
+            score = _mark_score(mark_binary, normalized_grayscale, bubble)
+            if score > best_score:
+                best_score = score
+                best_char = chars[row_idx]
+        
+        if best_score < minimum_fill or (best_score - empty_baseline) < 0.10:
+            result.append(' ')
+        else:
+            result.append(best_char)
+    return "".join(result).strip()
+
+
 def detect_answers(
     image_path: str | Path,
     total_questions: int,
     options_per_question: int,
-) -> dict[int, str]:
+) -> ScanExtractedData:
     if total_questions <= 0:
         raise ValueError("total_questions must be greater than zero")
     if not 2 <= options_per_question <= len(string.ascii_uppercase):
@@ -588,8 +760,8 @@ def detect_answers(
     expected_bubble_count = total_questions * options_per_question
     bubbles = _filter_dominant_bubble_size(bubbles, expected_bubble_count)
     maximum_candidate_count = max(
-        expected_bubble_count + 80,
-        int(math.ceil(expected_bubble_count * 2.5)),
+        expected_bubble_count + 800,
+        int(math.ceil(expected_bubble_count * 2.5)) + 600,
     )
     if len(bubbles) > maximum_candidate_count:
         raise OMRProcessingError(
@@ -601,9 +773,43 @@ def detect_answers(
             f"{expected_bubble_count}"
         )
     bubbles = _align_grid_coordinates(bubbles)
-    rows = _select_question_rows(
-        _group_rows(bubbles), total_questions, options_per_question
-    )
+    
+    # Calculate global score baseline for bubbles
+    global_scores = [_mark_score(mark_binary, normalized_grayscale, b) for b in bubbles]
+    all_scores = np.asarray(global_scores, dtype=np.float64)
+    empty_baseline = float(np.median(all_scores))
+    median_absolute_deviation = float(np.median(np.abs(all_scores - empty_baseline)))
+    minimum_fill = max(0.14, empty_baseline + max(0.09, median_absolute_deviation * 4.0))
+
+    clusters = _cluster_bubbles(bubbles)
+    question_rows = []
+    roll_number = None
+    student_name = None
+
+    for cluster in clusters:
+        rows = _group_rows(cluster)
+        
+        if len(rows) == 10 and all(len(row) >= 5 for row in rows):
+            roll_number = _decode_metadata_grid(rows, mark_binary, normalized_grayscale, "0123456789", empty_baseline, minimum_fill)
+            continue
+            
+        if len(rows) == 26 and all(len(row) >= 15 for row in rows):
+            student_name = _decode_metadata_grid(rows, mark_binary, normalized_grayscale, string.ascii_uppercase, empty_baseline, minimum_fill)
+            continue
+            
+        usable_rows = [row for row in rows if len(row) >= options_per_question]
+        if len(usable_rows) >= total_questions:
+            try:
+                question_rows = _select_question_rows(rows, total_questions, options_per_question)
+            except IncompleteSheetError:
+                pass
+                
+    if not question_rows:
+        question_rows = _select_question_rows(
+            _group_rows(bubbles), total_questions, options_per_question
+        )
+    
+    rows = question_rows
 
     labels = string.ascii_uppercase[:options_per_question]
     answers: dict[int, str] = {}
@@ -651,7 +857,12 @@ def detect_answers(
                     f"options {labels[selected_index]} and {labels[second_index]}"
                 )
         answers[question_number] = labels[selected_index]
-    return answers
+
+    return ScanExtractedData(
+        answers=answers,
+        roll_number=roll_number,
+        student_name=student_name,
+    )
 
 
 def _normalize_answers(answers: Mapping[int | str, str | None]) -> dict[int, str | None]:

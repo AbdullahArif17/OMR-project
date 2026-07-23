@@ -844,9 +844,15 @@ async def scan_student_sheets(
                                 scan_context.options_per_question,
                             )
                         )
-                        detected_answers = await asyncio.wait_for(detect_task, timeout=20.0)
+                        extracted_data = await asyncio.wait_for(detect_task, timeout=20.0)
                         grading = grade_answers(
-                            detected_answers, scan_context.answer_key
+                            extracted_data.answers, scan_context.answer_key
+                        )
+                        
+                        sheet_metadata = StudentMetadata(
+                            name=sheet_metadata.name or extracted_data.student_name,
+                            roll_number=sheet_metadata.roll_number or extracted_data.roll_number,
+                            class_name=sheet_metadata.class_name,
                         )
                     except asyncio.TimeoutError:
                         errors.append(
@@ -876,7 +882,7 @@ async def scan_student_sheets(
                     pending_results.append(
                         _make_pending_result(
                             metadata=sheet_metadata,
-                            detected_answers=detected_answers,
+                            detected_answers=extracted_data.answers,
                             grading=grading,
                             source_file=sheet.source_relative_path,
                             filename=display_filename,

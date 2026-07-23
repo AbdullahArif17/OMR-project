@@ -18,6 +18,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["AUTH_REQUIRED"] = "false"
 os.environ["AUTH_JWT_SECRET"] = ""
 os.environ["UPLOAD_DIR"] = str(TEST_UPLOAD_DIR)
+os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 
 from database import Base, engine  # noqa: E402
 from main import app  # noqa: E402
