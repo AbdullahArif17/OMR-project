@@ -142,6 +142,20 @@ class ResultListData(BaseModel):
     summary: ResultSummary
 
 
+class ResultUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=255)
+    roll_number: str | None = Field(default=None, max_length=50)
+    class_name: str | None = Field(default=None, max_length=50)
+
+    @field_validator("name", "roll_number", "class_name")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+
 class ScanError(BaseModel):
     filename: str
     message: str

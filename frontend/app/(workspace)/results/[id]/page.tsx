@@ -9,12 +9,15 @@ import { api, getApiError } from "@/lib/api";
 import type { Result } from "@/lib/types";
 import { breakdownRows, cn, formatDate, getGrade, isCorrect, studentClass, studentName, studentRoll } from "@/lib/utils";
 
+import { EditResultDialog } from "@/components/edit-result-dialog";
+
 export default function ResultDetailPage() {
   const params = useParams<{ id: string }>();
   const resultId = params.id;
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   const loadResult = useCallback(async () => {
     setLoading(true);
@@ -31,6 +34,12 @@ export default function ResultDetailPage() {
   useEffect(() => {
     void loadResult();
   }, [loadResult]);
+
+  const handleSaveEdit = async (data: { name: string | null; roll_number: string | null; class_name: string | null }) => {
+    await api.updateResult(resultId, data);
+    // Reload result to show updated data
+    await loadResult();
+  };
 
   const rows = useMemo(() => result ? breakdownRows(result).sort((a, b) => Number(a.question) - Number(b.question)) : [], [result]);
 
@@ -63,7 +72,16 @@ export default function ResultDetailPage() {
           <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-brand-500/25 blur-3xl" aria-hidden="true" />
           <div className="relative flex flex-col gap-7 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.17em] text-brand-200">Individual result</p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs font-extrabold uppercase tracking-[0.17em] text-brand-200">Individual result</p>
+                <button 
+                  className="rounded bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white transition hover:bg-white/20"
+                  onClick={() => setIsEditDialogOpen(true)}
+                  type="button"
+                >
+                  Edit Details
+                </button>
+              </div>
               <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">{studentName(result)}</h1>
               <p className="mt-2 text-sm text-slate-300">{examName}{result.exam?.subject ? ` · ${result.exam.subject}` : ""}</p>
               <div className="mt-5 flex flex-wrap gap-2"><span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-slate-200">Roll {studentRoll(result)}</span><span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-slate-200">Class {studentClass(result)}</span><span className={cn("rounded-full px-3 py-1.5 text-xs font-extrabold", statusTone)}>{passed ? "Passed" : "Failed"}</span></div>
@@ -110,6 +128,13 @@ export default function ResultDetailPage() {
           </>
         )}
       </section>
+
+      <EditResultDialog
+        isOpen={isEditDialogOpen}
+        onClose={() => setIsEditDialogOpen(false)}
+        onSave={handleSaveEdit}
+        result={result}
+      />
     </div>
   );
 }

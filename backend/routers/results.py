@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session, selectinload
 from auth import AuthorizedUser
 from database import get_db
 from models import Result
-from schemas import APIResponse, ResultDetail, ResultListData, ResultRead
-from services.data_access import ensure_exam_access, get_exam_or_404
+from schemas import APIResponse, ResultDetail, ResultListData, ResultRead, ResultUpdate, StudentMetadata
+from services.data_access import ensure_exam_access, get_exam_or_404, resolve_student
 
 
 router = APIRouter(tags=["results"])
@@ -159,4 +159,62 @@ def get_result(
         "success": True,
         "data": ResultDetail.model_validate(result),
         "message": "Result retrieved",
+    }
+
+
+@router.patch("/results/{result_id}", response_model=APIResponse[ResultDetail])
+def update_result(
+    result_id: uuid.UUID,
+    payload: ResultUpdate,
+    db: DatabaseSession,
+    user: AuthorizedUser,
+) -> dict[str, object]:
+    result = db.scalar(
+        select(Result)
+        .where(Result.id == result_id)
+        .options(selectinload(Result.student), selectinload(Result.exam))
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Result not found")
+    ensure_exam_access(result.exam, user)
+
+    # Check if student metadata changed
+    metadata_changed = False
+    if payload.name is not None and payload.name != result.student_name:
+        result.student_name = payload.name
+        metadata_changed = True
+    
+    if payload.roll_number is not None and payload.roll_number != result.student_roll_number:
+        result.student_roll_number = payload.roll_number
+        metadata_changed = True
+
+    if payload.class_name is not None and payload.class_name != result.student_class_name:
+        result.student_class_name = payload.class_name
+        metadata_changed = True
+
+    if metadata_changed:
+        # Re-resolve the student with the updated metadata
+        metadata = StudentMetadata(
+            name=result.student_name,
+            roll_number=result.student_roll_number,
+            class_name=result.student_class_name,
+        )
+        try:
+            student = resolve_student(db, metadata)
+            result.student_id = student.id
+            result.student = student
+        except Exception as e:
+            # If resolve_student throws an IntegrityError or other error (e.g. duplicate roll number for a different student)
+            # resolve_student actually handles duplicate roll numbers by reusing the existing student or updating it.
+            # However, just in case, we bubble up a 409
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Student metadata conflicts with an existing roll number") from e
+
+    db.commit()
+    db.refresh(result)
+
+    return {
+        "success": True,
+        "data": ResultDetail.model_validate(result),
+        "message": "Result updated successfully",
     }
