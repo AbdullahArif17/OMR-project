@@ -83,6 +83,8 @@ def _database_urls() -> tuple[str, str]:
 
 
 def _upload_dir() -> Path:
+    if os.getenv("VERCEL") == "1":
+        return Path("/tmp/uploads").resolve()
     configured = Path(os.getenv("UPLOAD_DIR", "uploads")).expanduser()
     if not configured.is_absolute():
         configured = BASE_DIR / configured
