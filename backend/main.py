@@ -20,7 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from config import settings
 from database import engine
 from errors import ApplicationError
-from routers import answer_keys, auth, exams, results, scanner
+from routers import answer_keys, auth, exams, results, scanner, sheets
 
 
 logger = logging.getLogger("omr_api")
@@ -267,6 +267,7 @@ app.include_router(exams.router)
 app.include_router(answer_keys.router)
 app.include_router(scanner.router)
 app.include_router(results.router)
+app.include_router(sheets.router)
 
 
 @app.get("/")

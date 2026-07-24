@@ -270,4 +270,34 @@ export const api = {
     });
     return response.data;
   },
+
+  async downloadSheet(examId: string, options?: { includeName?: boolean; includeRoll?: boolean }) {
+    const params = new URLSearchParams();
+    if (options?.includeName === false) params.set("include_name", "false");
+    if (options?.includeRoll === false) params.set("include_roll", "false");
+    const qs = params.toString();
+    const response = await client.get<Blob>(`/exams/${pathId(examId)}/sheet${qs ? `?${qs}` : ""}`, {
+      responseType: "blob",
+    });
+    return response.data;
+  },
+
+  async previewSheet(options: {
+    totalQuestions: number;
+    optionsPerQuestion: number;
+    title?: string;
+    includeName?: boolean;
+    includeRoll?: boolean;
+  }) {
+    const params = new URLSearchParams();
+    params.set("total_questions", String(options.totalQuestions));
+    params.set("options_per_question", String(options.optionsPerQuestion));
+    if (options.title) params.set("title", options.title);
+    if (options.includeName === false) params.set("include_name", "false");
+    if (options.includeRoll === false) params.set("include_roll", "false");
+    const response = await client.get<Blob>(`/sheets/preview?${params.toString()}`, {
+      responseType: "blob",
+    });
+    return response.data;
+  },
 };

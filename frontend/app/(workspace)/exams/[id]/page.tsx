@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { CalendarIcon, ChartIcon, ChevronRightIcon, ExamIcon, KeyIcon, ScanIcon } from "@/components/icons";
+import { CalendarIcon, ChartIcon, ChevronRightIcon, DownloadIcon, ExamIcon, KeyIcon, ScanIcon } from "@/components/icons";
 import { ScanResultCard } from "@/components/scan-result-card";
 import { SheetUploader } from "@/components/sheet-uploader";
-import { Alert, PageTitle, RetryButton, Skeleton } from "@/components/ui";
+import { Alert, PageTitle, RetryButton, Skeleton, Spinner } from "@/components/ui";
 import { api, getApiError } from "@/lib/api";
 import type { AnswerMap, Exam, ScanBatchPayload } from "@/lib/types";
-import { cn, formatDate, normalizeAnswerMap } from "@/lib/utils";
+import { cn, formatDate, normalizeAnswerMap, safeFileName } from "@/lib/utils";
 
 export default function ExamDetailPage() {
   const params = useParams<{ id: string }>();
@@ -20,6 +20,7 @@ export default function ExamDetailPage() {
   const [batch, setBatch] = useState<ScanBatchPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloadingSheet, setDownloadingSheet] = useState(false);
 
   const loadExam = useCallback(async () => {
     setLoading(true);
@@ -52,6 +53,27 @@ export default function ExamDetailPage() {
     window.setTimeout(() => document.getElementById("latest-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
+  async function handleDownloadSheet() {
+    if (!exam) return;
+    setDownloadingSheet(true);
+    setError("");
+    try {
+      const blob = await api.downloadSheet(exam.id);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFileName(exam.name) || "exam"}-omr-sheet.png`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(getApiError(caught, "The OMR sheet could not be generated."));
+    } finally {
+      setDownloadingSheet(false);
+    }
+  }
+
   if (loading) {
     return <div className="space-y-6"><Skeleton className="h-28" /><div className="grid gap-5 lg:grid-cols-3"><Skeleton className="h-40 lg:col-span-2" /><Skeleton className="h-40" /></div><Skeleton className="h-[440px]" /></div>;
   }
@@ -66,7 +88,7 @@ export default function ExamDetailPage() {
         eyebrow={exam.subject || "Exam workspace"}
         title={exam.name}
         description="Upload student sheets, review each scan, and move into the full results view when you’re ready."
-        actions={<Link className="button-secondary" href={`/exams/${exam.id}/results`}><ChartIcon size={18} /> View all results <ChevronRightIcon size={16} /></Link>}
+        actions={<div className="flex flex-wrap gap-2"><button className="button-secondary" disabled={downloadingSheet} onClick={() => void handleDownloadSheet()} type="button">{downloadingSheet ? <><Spinner /> Generating…</> : <><DownloadIcon size={18} /> Download OMR Sheet</>}</button><Link className="button-secondary" href={`/exams/${exam.id}/results`}><ChartIcon size={18} /> View all results <ChevronRightIcon size={16} /></Link></div>}
       />
       {error && <Alert>{error}</Alert>}
 
