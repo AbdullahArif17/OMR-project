@@ -16,7 +16,8 @@ from auth import AuthorizedUser
 from database import get_db
 from models import Result
 from schemas import APIResponse, ResultDetail, ResultListData, ResultRead, ResultUpdate, StudentMetadata
-from services.data_access import ensure_exam_access, get_exam_or_404, resolve_student
+from services.data_access import ensure_exam_access, get_exam_or_404, load_answer_key, resolve_student
+from services.omr_engine import grade_answers
 
 
 router = APIRouter(tags=["results"])
@@ -209,6 +210,62 @@ def update_result(
             # However, just in case, we bubble up a 409
             db.rollback()
             raise HTTPException(status_code=409, detail="Student metadata conflicts with an existing roll number") from e
+
+    # --- answer override handling ---
+    answers_changed = False
+    if payload.answers is not None:
+        exam = result.exam
+        if exam is None:
+            raise HTTPException(status_code=404, detail="Result's exam could not be loaded")
+
+        # Validate that all provided answers are within the exam's option range
+        valid_options = set("ABCDE"[: exam.options_per_question])
+        for question, answer in payload.answers.items():
+            if not (1 <= question <= exam.total_questions):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Question number {question} is out of range for this exam",
+                )
+            if answer not in valid_options:
+                allowed = ", ".join(sorted(valid_options))
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Question {question} has an invalid answer; must be one of: {allowed}",
+                )
+
+        try:
+            answer_key = load_answer_key(db, exam)
+        except HTTPException:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot edit answers: no answer key is saved for this exam yet",
+            )
+
+        # Merge existing detected answers with overrides
+        existing_answers: dict[int, str] = {}
+        raw_breakdown = result.breakdown or {}
+        if isinstance(raw_breakdown, dict):
+            for raw_q, item in raw_breakdown.items():
+                try:
+                    q = int(raw_q)
+                except (TypeError, ValueError):
+                    continue
+                student_answer = item.get("student") if isinstance(item, dict) else None
+                if student_answer:
+                    existing_answers[q] = str(student_answer).upper()
+
+        final_answers: dict[int, str] = {
+            q: existing_answers.get(q, "A") for q in range(1, exam.total_questions + 1)
+        }
+        final_answers.update(payload.answers)
+
+        grading = grade_answers(final_answers, answer_key)
+        result.answers = {str(q): a for q, a in final_answers.items()}
+        result.breakdown = {str(k): v for k, v in grading["breakdown"].items()}
+        result.score = int(grading["score"])
+        result.total = int(grading["total"])
+        result.percentage = float(grading["percentage"])
+        answers_changed = True
 
     db.commit()
     db.refresh(result)

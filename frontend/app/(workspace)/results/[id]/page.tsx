@@ -35,9 +35,9 @@ export default function ResultDetailPage() {
     void loadResult();
   }, [loadResult]);
 
-  const handleSaveEdit = async (data: { name: string | null; roll_number: string | null; class_name: string | null }) => {
+  const handleSaveEdit = async (data: { name: string | null; roll_number: string | null; class_name: string | null; answers?: Record<number, string> | null }) => {
     await api.updateResult(resultId, data);
-    // Reload result to show updated data
+    // Reload result to show updated data (including recalculated score)
     await loadResult();
   };
 

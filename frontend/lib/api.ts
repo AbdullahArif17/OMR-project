@@ -259,7 +259,7 @@ export const api = {
     return unwrap(response.data);
   },
 
-  async updateResult(id: string, input: { name?: string | null; roll_number?: string | null; class_name?: string | null }) {
+  async updateResult(id: string, input: { name?: string | null; roll_number?: string | null; class_name?: string | null; answers?: Record<number, string> | null }) {
     const response = await client.patch<ApiEnvelope<Result> | Result>(`/results/${pathId(id)}`, input);
     return unwrap(response.data);
   },

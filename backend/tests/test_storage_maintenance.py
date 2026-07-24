@@ -42,7 +42,6 @@ def test_storage_maintenance_removes_only_stale_unreferenced_data(client) -> Non
             subject="Operations",
             total_questions=10,
             options_per_question=4,
-            created_by="test-user",
         )
         db.add(exam)
         db.flush()

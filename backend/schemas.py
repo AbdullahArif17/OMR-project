@@ -146,6 +146,7 @@ class ResultUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     roll_number: str | None = Field(default=None, max_length=50)
     class_name: str | None = Field(default=None, max_length=50)
+    answers: dict[int, str] | None = Field(default=None)
 
     @field_validator("name", "roll_number", "class_name")
     @classmethod
@@ -153,6 +154,20 @@ class ResultUpdate(BaseModel):
         if value is None:
             return None
         return value.strip() or None
+
+    @field_validator("answers")
+    @classmethod
+    def validate_answers(cls, value: dict[int, str] | None) -> dict[int, str] | None:
+        if value is None:
+            return None
+        normalized: dict[int, str] = {}
+        for question, raw_answer in value.items():
+            question = int(question)
+            answer = raw_answer.strip().upper()
+            if not answer or len(answer) != 1 or answer not in "ABCDE":
+                raise ValueError(f"Question {question} has an invalid answer; must be a single letter A–E")
+            normalized[question] = answer
+        return normalized
 
 
 

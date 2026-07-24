@@ -436,3 +436,128 @@ def test_combined_upload_size_is_bounded_before_processing(
             "retryable": False,
         }
     ]
+
+
+def test_edit_result_metadata_updates_student_info(client, make_sheet) -> None:
+    exam = _create_exam(client, name="Edit Metadata Exam")
+    exam_id = exam["id"]
+    assert client.post(
+        f"/exams/{exam_id}/answer-key/manual", json={"answers": _answer_map()}
+    ).status_code == 200
+
+    sheet_path = make_sheet([0, 1, 2, 3, 0, 1, 2, 3, 0, 1], filename="edit-meta.png")
+    with sheet_path.open("rb") as sheet:
+        scan_response = client.post(
+            f"/exams/{exam_id}/scan",
+            files={"files": ("edit-meta.png", sheet, "image/png")},
+            data={"metadata": json.dumps([{"name": "Old Name", "roll_number": "R-999"}])},
+        )
+    assert scan_response.status_code == 200
+    result_id = scan_response.json()["data"]["results"][0]["id"]
+    original_score = scan_response.json()["data"]["results"][0]["score"]
+
+    patch_response = client.patch(
+        f"/results/{result_id}",
+        json={"name": "New Name", "roll_number": "R-NEW", "class_name": "Class-XII"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    updated = patch_response.json()["data"]
+    assert updated["student"]["name"] == "New Name"
+    assert updated["student"]["roll_number"] == "R-NEW"
+    assert updated["student"]["class_name"] == "Class-XII"
+    # Score should remain unchanged after metadata-only edit
+    assert updated["score"] == original_score
+
+
+def test_edit_result_answers_recalculates_score(client, make_sheet) -> None:
+    answer_map = _answer_map()
+    exam = _create_exam(client, name="Edit Answers Exam")
+    exam_id = exam["id"]
+    assert client.post(
+        f"/exams/{exam_id}/answer-key/manual", json={"answers": answer_map}
+    ).status_code == 200
+
+    # Scan a sheet that gets question 1 wrong (option B instead of A)
+    sheet_path = make_sheet([1, 1, 2, 3, 0, 1, 2, 3, 0, 1], filename="edit-ans.png")
+    with sheet_path.open("rb") as sheet:
+        scan_response = client.post(
+            f"/exams/{exam_id}/scan",
+            files={"files": ("edit-ans.png", sheet, "image/png")},
+        )
+    assert scan_response.status_code == 200
+    result_data = scan_response.json()["data"]["results"][0]
+    result_id = result_data["id"]
+    assert result_data["score"] == 9  # 9 out of 10 correct (Q1 wrong)
+
+    # Override question 1 answer from B to A (now all correct)
+    patch_response = client.patch(
+        f"/results/{result_id}",
+        json={"answers": {1: "A"}},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    updated = patch_response.json()["data"]
+    assert updated["score"] == 10
+    assert updated["total"] == 10
+    assert updated["percentage"] == 100.0
+    assert updated["breakdown"]["1"]["student"] == "A"
+    assert updated["breakdown"]["1"]["result"] is True
+
+
+def test_edit_result_invalid_answer_option_is_rejected(client, make_sheet) -> None:
+    exam = _create_exam(client, name="Bad Answer Exam")
+    exam_id = exam["id"]
+    assert client.post(
+        f"/exams/{exam_id}/answer-key/manual", json={"answers": _answer_map()}
+    ).status_code == 200
+
+    sheet_path = make_sheet([0, 1, 2, 3, 0, 1, 2, 3, 0, 1], filename="bad-ans.png")
+    with sheet_path.open("rb") as sheet:
+        scan_response = client.post(
+            f"/exams/{exam_id}/scan",
+            files={"files": ("bad-ans.png", sheet, "image/png")},
+        )
+    assert scan_response.status_code == 200
+    result_id = scan_response.json()["data"]["results"][0]["id"]
+
+    # Try to set answer to F (not valid for 4-option exam)
+    patch_response = client.patch(
+        f"/results/{result_id}",
+        json={"answers": {1: "F"}},
+    )
+    assert patch_response.status_code == 422
+
+    # Try to edit a question number out of range
+    patch_response = client.patch(
+        f"/results/{result_id}",
+        json={"answers": {99: "A"}},
+    )
+    assert patch_response.status_code == 422
+
+
+def test_edit_result_metadata_without_change_is_noop(client, make_sheet) -> None:
+    exam = _create_exam(client, name="Noop Edit Exam")
+    exam_id = exam["id"]
+    assert client.post(
+        f"/exams/{exam_id}/answer-key/manual", json={"answers": _answer_map()}
+    ).status_code == 200
+
+    sheet_path = make_sheet([0, 1, 2, 3, 0, 1, 2, 3, 0, 1], filename="noop.png")
+    with sheet_path.open("rb") as sheet:
+        scan_response = client.post(
+            f"/exams/{exam_id}/scan",
+            files={"files": ("noop.png", sheet, "image/png")},
+        )
+    assert scan_response.status_code == 200
+    result_id = scan_response.json()["data"]["results"][0]["id"]
+
+    # Send the same values as the original
+    original = client.get(f"/results/{result_id}").json()["data"]
+    patch_response = client.patch(
+        f"/results/{result_id}",
+        json={
+            "name": original["student"]["name"] or "Unnamed",
+            "roll_number": original["student"]["roll_number"] or "Unknown",
+        },
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.json()["data"]["score"] == original["score"]
