@@ -47,7 +47,7 @@ def test_production_settings_accept_neon_and_exact_https_origins(monkeypatch) ->
         ("AUTH_JWT_SECRET", "", "requires AUTH_JWT_SECRET"),
         ("AUTH_JWT_SECRET", "too-short", "at least 32 characters"),
         ("ADMIN_PASSWORD", "", "requires ADMIN_PASSWORD"),
-        ("ADMIN_PASSWORD", "short", "at least 12 characters"),
+        ("ADMIN_PASSWORD", "short", "at least 8 characters"),
         ("DATABASE_URL_DIRECT", "sqlite:///wrong.db", "must use PostgreSQL"),
     ],
 )

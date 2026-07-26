@@ -216,8 +216,8 @@ def get_settings() -> Settings:
     refresh_ttl_days = _positive_int("AUTH_REFRESH_TOKEN_TTL_DAYS", 30)
     if refresh_ttl_days > 365:
         raise ValueError("AUTH_REFRESH_TOKEN_TTL_DAYS cannot exceed 365")
-    if admin_password is not None and len(admin_password) < 12:
-        raise ValueError("ADMIN_PASSWORD must be at least 12 characters")
+    if admin_password is not None and len(admin_password) < 8:
+        raise ValueError("ADMIN_PASSWORD must be at least 8 characters")
     max_file_size_mb = _positive_int("MAX_FILE_SIZE_MB", 10)
     max_files_per_request = _positive_int("MAX_FILES_PER_REQUEST", 50)
     max_batch_size_mb = _positive_int("MAX_BATCH_SIZE_MB", 100)

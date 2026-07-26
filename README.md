@@ -100,7 +100,7 @@ The admin manages teacher accounts from an unlinked console at `/admin`. It is n
 - **Credential rotation**: Rotating `AUTH_JWT_SECRET` invalidates all sessions. Rotating `ADMIN_PASSWORD` invalidates any active admin session.
 - **HTTPS**: In production, HTTPS is strictly enforced. The backend refuses to start without secure origins in `CORS_ORIGINS`.
 - **Upload storage**: Uploads and results contain sensitive educational records. Ensure the configured `UPLOAD_DIR` has restricted file permissions and is securely backed up.
-- **Admin console**: The `/admin` URL is not a secret, but the `ADMIN_PASSWORD` is the only gate. Keep it strong (≥ 12 chars required).
+- **Admin console**: The `/admin` URL is not a secret, but the `ADMIN_PASSWORD` is the only gate. Keep it strong (≥ 8 chars required).
 
 For a deliberately unauthenticated local demo, set the backend's `AUTH_REQUIRED=false` and `NEXT_PUBLIC_ALLOW_DEMO=true` in the frontend. Never use demo mode in a public deployment.
 
