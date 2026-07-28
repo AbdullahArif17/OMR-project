@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { EditResultDialog } from "@/components/edit-result-dialog";
 import { ArrowLeftIcon, ChartIcon, DownloadIcon, FilterIcon, SearchIcon, UsersIcon } from "@/components/icons";
 import { ResultsTable } from "@/components/results-table";
 import { Alert, EmptyState, PageTitle, RetryButton, Skeleton, Spinner, StatCard } from "@/components/ui";
@@ -25,6 +26,9 @@ export default function ResultsPage() {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortOption>("recent");
   const [exporting, setExporting] = useState(false);
+
+  // Edit dialog state
+  const [editingResult, setEditingResult] = useState<Result | null>(null);
 
   const loadResults = useCallback(async () => {
     setLoading(true);
@@ -90,6 +94,13 @@ export default function ResultsPage() {
     }
   }
 
+  async function handleSaveEdit(data: { name: string | null; roll_number: string | null; class_name: string | null; answers?: Record<number, string> | null }) {
+    if (!editingResult) return;
+    await api.updateResult(editingResult.id, data);
+    // Reload results to reflect changes
+    await loadResults();
+  }
+
   if (loading) {
     return <div className="space-y-6"><Skeleton className="h-28" /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton className="h-32" key={index} />)}</div><Skeleton className="h-72" /><Skeleton className="h-96" /></div>;
   }
@@ -126,16 +137,25 @@ export default function ResultsPage() {
 
           <section>
             <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <div><h2 className="text-xl font-black tracking-tight text-slate-950">Student results</h2><p className="mt-1 text-sm text-slate-500">{filtered.length} of {results.length} results shown</p></div>
+              <div><h2 className="text-xl font-black tracking-tight text-slate-950">Student results</h2><p className="mt-1 text-sm text-slate-500">{filtered.length} of {results.length} results shown · Click the pencil icon to edit</p></div>
               <div className="grid gap-3 sm:grid-cols-3 xl:w-[720px]">
                 <label className="relative sm:col-span-1"><span className="sr-only">Search students</span><SearchIcon className="pointer-events-none absolute left-3.5 top-3 text-slate-400" size={18} /><input className="text-field py-2.5 pl-10" onChange={(event) => setQuery(event.target.value)} placeholder="Search student…" type="search" value={query} /></label>
                 <label className="relative"><span className="sr-only">Filter by status</span><FilterIcon className="pointer-events-none absolute left-3.5 top-3 text-slate-400" size={17} /><select className="text-field appearance-none py-2.5 pl-10" onChange={(event) => setStatus(event.target.value as StatusFilter)} value={status}><option value="all">All statuses</option><option value="pass">Passed</option><option value="review">Needs review</option></select></label>
                 <label><span className="sr-only">Sort results</span><select className="text-field appearance-none py-2.5" onChange={(event) => setSort(event.target.value as SortOption)} value={sort}><option value="recent">Newest first</option><option value="score-desc">Highest score</option><option value="score-asc">Lowest score</option><option value="name">Student name</option></select></label>
               </div>
             </div>
-            {filtered.length > 0 ? <ResultsTable results={filtered} /> : <EmptyState action={<button className="button-secondary" onClick={() => { setQuery(""); setStatus("all"); }} type="button">Clear filters</button>} description="Try a different student, roll number, class, or status." icon={<SearchIcon size={25} />} title="No matching results" />}
+            {filtered.length > 0 ? <ResultsTable results={filtered} onEdit={(result) => setEditingResult(result)} /> : <EmptyState action={<button className="button-secondary" onClick={() => { setQuery(""); setStatus("all"); }} type="button">Clear filters</button>} description="Try a different student, roll number, class, or status." icon={<SearchIcon size={25} />} title="No matching results" />}
           </section>
         </>
+      )}
+
+      {editingResult && (
+        <EditResultDialog
+          isOpen={true}
+          onClose={() => setEditingResult(null)}
+          onSave={handleSaveEdit}
+          result={editingResult}
+        />
       )}
     </div>
   );
