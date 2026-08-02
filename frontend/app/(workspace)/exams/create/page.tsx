@@ -74,7 +74,7 @@ function CreateExamContent() {
     const name = form.name.trim();
     const subject = form.subject?.trim();
     if (name.length < 3) { setError("Exam name must be at least 3 characters."); return; }
-    if (form.total_questions < 10 || form.total_questions > 100) { setError("Total questions must be between 10 and 100."); return; }
+    if (form.total_questions < 10 || form.total_questions > 40) { setError("Total questions must be between 10 and 40."); return; }
     setSubmitting(true);
     try {
       const created = await api.createExam({ ...form, name, subject });
@@ -117,8 +117,8 @@ function CreateExamContent() {
             </div>
             <div>
               <label className="field-label" htmlFor="question-count">Total questions <span className="text-rose-500">*</span></label>
-              <input className="text-field" id="question-count" max={100} min={10} onChange={(event) => update("total_questions", Number(event.target.value))} required type="number" value={form.total_questions} />
-              <p className="mt-2 text-xs text-slate-400">Between 10 and 100 questions.</p>
+              <input className="text-field" id="question-count" max={40} min={10} onChange={(event) => update("total_questions", parseInt(event.target.value, 10) || 0)} required type="number" value={form.total_questions.toString()} />
+              <p className="mt-2 text-xs text-slate-400">Between 10 and 40 questions.</p>
             </div>
             <fieldset className="lg:col-span-2">
               <legend className="field-label">Options per question</legend>

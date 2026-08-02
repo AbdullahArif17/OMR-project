@@ -78,8 +78,8 @@ export default function GenerateSheetPage() {
           
           <div>
             <label className="field-label" htmlFor="question-count">Total questions <span className="text-rose-500">*</span></label>
-            <input className="text-field" id="question-count" max={100} min={10} onChange={(event) => setTotalQuestions(Number(event.target.value))} required type="number" value={totalQuestions} />
-            <p className="mt-2 text-xs text-slate-400">Between 10 and 100 questions.</p>
+            <input className="text-field" id="question-count" max={40} min={10} onChange={(event) => setTotalQuestions(parseInt(event.target.value, 10) || 0)} required type="number" value={totalQuestions.toString()} />
+            <p className="mt-2 text-xs text-slate-400">Between 10 and 40 questions.</p>
           </div>
           
           <fieldset>
