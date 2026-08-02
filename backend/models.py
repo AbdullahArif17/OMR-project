@@ -35,7 +35,7 @@ class Exam(Base):
     __tablename__ = "exams"
     __table_args__ = (
         CheckConstraint(
-            "total_questions BETWEEN 10 AND 100",
+            "total_questions BETWEEN 10 AND 40",
             name="total_questions_range",
         ),
         CheckConstraint(

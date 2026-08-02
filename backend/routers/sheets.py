@@ -54,7 +54,7 @@ def download_exam_sheet(
 @router.get("/sheets/preview")
 def preview_sheet(
     user: AuthorizedUser,
-    total_questions: Annotated[int, Query(ge=10, le=100)] = 20,
+    total_questions: Annotated[int, Query(ge=10, le=40)] = 20,
     options_per_question: Annotated[int, Query()] = 4,
     title: Annotated[str, Query(max_length=60)] = "OMR EXAMINATION SHEET",
     include_name: Annotated[bool, Query()] = True,

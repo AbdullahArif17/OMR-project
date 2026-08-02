@@ -47,7 +47,7 @@ def upgrade() -> None:
             name="options_per_question_values",
         ),
         sa.CheckConstraint(
-            "total_questions BETWEEN 10 AND 100",
+            "total_questions BETWEEN 10 AND 40",
             name="total_questions_range",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_exams"),

@@ -25,7 +25,7 @@ class APIResponse(BaseModel, Generic[T]):
 class ExamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     subject: str | None = Field(default=None, max_length=100)
-    total_questions: int = Field(ge=10, le=100)
+    total_questions: int = Field(ge=10, le=40)
     options_per_question: int = Field(default=4)
 
     @field_validator("name")

@@ -27,7 +27,7 @@ def generate_omr_sheet(
     Parameters
     ----------
     total_questions:
-        Number of question rows in the answer grid (10–100).
+        Number of question rows in the answer grid (10–40).
     options_per_question:
         Number of bubble columns per question row (4 or 5).
     exam_title:

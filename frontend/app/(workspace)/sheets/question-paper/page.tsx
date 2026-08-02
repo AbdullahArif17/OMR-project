@@ -56,8 +56,8 @@ export default function QuestionPaperPage() {
   }, [omrImageUrl]);
 
   function addQuestion() {
-    if (questions.length >= 100) {
-      setError("Maximum 100 questions allowed.");
+    if (questions.length >= 40) {
+      setError("Maximum 40 questions allowed.");
       return;
     }
     setQuestions((prev) => [...prev, makeQuestion(optionsPerQuestion)]);
