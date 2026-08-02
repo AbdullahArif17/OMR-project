@@ -10,6 +10,7 @@ import numpy as np
 image = cv2.imread('sample_omr_sheet_full.png')
 image = _resize_for_analysis(image)
 
+
 # Without rectify
 _, cb1, _ = _prepare_thresholds(image)
 b1 = _candidate_bubbles(cb1)

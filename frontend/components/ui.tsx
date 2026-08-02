@@ -6,6 +6,7 @@ export function Spinner({ className = "h-5 w-5" }: { className?: string }) {
   return <span aria-hidden="true" className={cn("inline-block animate-spin rounded-full border-2 border-current border-r-transparent", className)} />;
 }
 
+
 export function Alert({ children, tone = "error", title }: { children: ReactNode; tone?: "error" | "info" | "success"; title?: string }) {
   const styles = {
     error: "border-rose-200 bg-rose-50 text-rose-800",
