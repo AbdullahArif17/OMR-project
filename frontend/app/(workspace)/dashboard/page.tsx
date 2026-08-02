@@ -74,7 +74,7 @@ export default function DashboardPage() {
             ? "Oversee every assessment, scan answer sheets, and review results across all teachers."
             : "Create assessments, scan answer sheets, and keep every result organized."
         }
-        actions={<div className="flex flex-wrap gap-2"><Link className="button-secondary" href="/sheets/generate"><SparkleIcon size={18} /> Custom sheet</Link><Link className="button-primary" href="/exams/create"><PlusIcon size={18} /> Create new exam</Link></div>}
+        actions={<div className="flex flex-wrap gap-2"><Link className="button-secondary" href="/sheets/generate"><SparkleIcon size={18} /> Blank OMR Sheet</Link><Link className="button-secondary" href="/sheets/question-paper"><ExamIcon size={18} /> Question Paper</Link><Link className="button-primary" href="/exams/create"><PlusIcon size={18} /> Create new exam</Link></div>}
       />
 
       {error && <Alert>{error}</Alert>}
