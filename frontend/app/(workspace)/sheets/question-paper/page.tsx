@@ -108,7 +108,7 @@ export default function QuestionPaperPage() {
       // 1. Fetch the perfect OMR bubble sheet from the backend
       const blob = await api.previewSheet({
         title: title.trim() || "EXAMINATION",
-        totalQuestions: questions.length,
+        totalQuestions: Math.max(10, questions.length),
         optionsPerQuestion,
         includeName,
         includeRoll,
@@ -123,7 +123,8 @@ export default function QuestionPaperPage() {
         setPrinting(false);
       }, 500);
       
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError("Failed to generate the OMR sheet attachment. Please try again.");
       setPrinting(false);
     }
