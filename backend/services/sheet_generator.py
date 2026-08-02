@@ -117,6 +117,16 @@ def generate_omr_sheet(
     q_grid_w = (options_per_question - 1) * cs
     q_x0 = mx + (paper_w - q_grid_w) // 2
 
+    # Check if the answer grid fits on the page and extend if needed
+    q_grid_bottom = q_y0 + (total_questions - 1) * rs + R
+    if q_grid_bottom > bed_h - 50:
+        # Extend the canvas height
+        extra = q_grid_bottom - bed_h + 100
+        extension = np.full((extra, bed_w, 3), 40, dtype=np.uint8)
+        # Fill the paper area white
+        cv2.rectangle(extension, (mx, 0), (mx + paper_w, extra), (255, 255, 255), -1)
+        img = np.vstack([img, extension])
+
     cv2.putText(img, "ANSWERS", (q_x0, q_y0 - 30), font, 0.7, font_c, 2)
     for c in range(options_per_question):
         cv2.putText(
@@ -128,16 +138,6 @@ def generate_omr_sheet(
         )
         for c in range(options_per_question):
             cv2.circle(img, (q_x0 + c * cs, q_y0 + r * rs), R, (0, 0, 0), 2)
-
-    # Check if the answer grid fits on the page and extend if needed
-    q_grid_bottom = q_y0 + (total_questions - 1) * rs + R
-    if q_grid_bottom > bed_h - 50:
-        # Extend the canvas height
-        extra = q_grid_bottom - bed_h + 100
-        extension = np.full((extra, bed_w, 3), 40, dtype=np.uint8)
-        # Fill the paper area white
-        cv2.rectangle(extension, (mx, 0), (mx + paper_w, extra), (255, 255, 255), -1)
-        img = np.vstack([img, extension])
 
     # ── encode to PNG ───────────────────────────────────────────────
     success, buffer = cv2.imencode(".png", img)
