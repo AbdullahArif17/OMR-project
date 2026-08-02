@@ -31,6 +31,8 @@ export default function QuestionPaperPage() {
     "• Read each question carefully before answering.\n• Fill in the circle completely for your chosen answer.\n• Use a dark pencil or pen — do not use erasable ink.\n• Each question carries equal marks."
   );
   const [duration, setDuration] = useState("60 minutes");
+  const [totalMarks, setTotalMarks] = useState("");
+  const [teacherName, setTeacherName] = useState("");
   const [optionsPerQuestion, setOptionsPerQuestion] = useState<4 | 5>(4);
   const [questions, setQuestions] = useState<QuestionItem[]>([
     makeQuestion(4),
@@ -167,6 +169,14 @@ export default function QuestionPaperPage() {
             <div>
               <label className="field-label" htmlFor="paper-duration">Duration</label>
               <input className="text-field" id="paper-duration" maxLength={30} onChange={(e) => setDuration(e.target.value)} placeholder="e.g. 60 minutes" value={duration} />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="paper-total-marks">Total Marks (Optional)</label>
+              <input className="text-field" id="paper-total-marks" maxLength={30} onChange={(e) => setTotalMarks(e.target.value)} placeholder={`e.g. ${questions.length}`} value={totalMarks} />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="paper-teacher-name">Teacher Name (Optional)</label>
+              <input className="text-field" id="paper-teacher-name" maxLength={60} onChange={(e) => setTeacherName(e.target.value)} placeholder="e.g. Mr. Smith" value={teacherName} />
             </div>
             <div className="lg:col-span-2">
               <label className="field-label" htmlFor="paper-instructions">Instructions (one per line)</label>
@@ -320,11 +330,12 @@ export default function QuestionPaperPage() {
               <h1 style={{ fontSize: "20px", fontWeight: 900, textAlign: "center", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
                 {title || "EXAMINATION"}
               </h1>
-              {(subject || duration) && (
+              {(subject || duration || teacherName || totalMarks) && (
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginTop: "6px", color: "#333" }}>
                   {subject && <span><strong>Subject:</strong> {subject}</span>}
+                  {teacherName && <span><strong>Teacher:</strong> {teacherName}</span>}
                   {duration && <span><strong>Time Allowed:</strong> {duration}</span>}
-                  <span><strong>Total Marks:</strong> {questions.length}</span>
+                  <span><strong>Total Marks:</strong> {totalMarks || questions.length}</span>
                 </div>
               )}
             </div>
