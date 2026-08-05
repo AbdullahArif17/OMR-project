@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
@@ -71,13 +70,6 @@ def _decode_access_token(token: str) -> dict[str, Any]:
         raise _authentication_error("Authentication token is not an access token")
     return claims
 
-def verify_admin_password(password: str) -> bool:
-    """Constant-time check of the admin console password from configuration."""
-    configured = settings.admin_password
-    if not configured:
-        return False
-    return secrets.compare_digest(password.encode("utf-8"), configured.encode("utf-8"))
-
 def get_current_user(
     credentials: Annotated[
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
@@ -107,12 +99,10 @@ def get_current_user(
     if not isinstance(subject, str) or not subject.strip():
         raise _authentication_error("Authentication token is missing a subject")
     role = claims.get("role")
-    
+
     if subject == ADMIN_SUBJECT and role == "admin":
-        if not settings.admin_password:
-            raise _authentication_error("Admin access is not configured")
         return AuthUser(subject=ADMIN_SUBJECT, role="admin", claims=claims)
-    
+
     raise _authentication_error("Authentication token subject is invalid")
 
 AuthorizedUser = Annotated[AuthUser, Depends(get_current_user)]

@@ -142,7 +142,6 @@ class Settings:
     auth_jwt_algorithm: str
     auth_access_token_ttl_minutes: int
     auth_refresh_token_ttl_days: int
-    admin_password: str | None
     cors_origins: tuple[str, ...]
     trusted_hosts: tuple[str, ...]
     environment: str
@@ -167,7 +166,6 @@ def get_settings() -> Settings:
     secret = os.getenv("AUTH_JWT_SECRET", "").strip() or None
     auth_setting = os.getenv("AUTH_REQUIRED")
     auth_required = _parse_bool(auth_setting, default=True)
-    admin_password = os.getenv("ADMIN_PASSWORD", "").strip() or None
     origins = _cors_origins()
     trusted_hosts = tuple(
         host.strip()
@@ -198,10 +196,6 @@ def get_settings() -> Settings:
             raise ValueError(
                 "Production AUTH_JWT_SECRET must be at least 32 characters"
             )
-        if not admin_password:
-            raise ValueError(
-                "Production requires ADMIN_PASSWORD to enable the admin console"
-            )
         insecure_origins = [origin for origin in origins if not origin.startswith("https://")]
         if insecure_origins:
             raise ValueError("Production CORS_ORIGINS must use HTTPS")
@@ -216,8 +210,6 @@ def get_settings() -> Settings:
     refresh_ttl_days = _positive_int("AUTH_REFRESH_TOKEN_TTL_DAYS", 30)
     if refresh_ttl_days > 365:
         raise ValueError("AUTH_REFRESH_TOKEN_TTL_DAYS cannot exceed 365")
-    if admin_password is not None and len(admin_password) < 8:
-        raise ValueError("ADMIN_PASSWORD must be at least 8 characters")
     max_file_size_mb = _positive_int("MAX_FILE_SIZE_MB", 10)
     max_files_per_request = _positive_int("MAX_FILES_PER_REQUEST", 50)
     max_batch_size_mb = _positive_int("MAX_BATCH_SIZE_MB", 100)
@@ -260,7 +252,6 @@ def get_settings() -> Settings:
         auth_jwt_algorithm=auth_algorithm,
         auth_access_token_ttl_minutes=access_ttl_minutes,
         auth_refresh_token_ttl_days=refresh_ttl_days,
-        admin_password=admin_password,
         cors_origins=origins,
         trusted_hosts=trusted_hosts,
         environment=environment,

@@ -39,7 +39,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   allowDemo: boolean;
-  signIn: (password: string) => Promise<void>;
+  signIn: () => Promise<void>;
   signOut: () => void;
   continueInDemo: () => void;
 }
@@ -135,13 +135,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearSession, persist]);
 
   const signIn = useCallback(
-    async (password: string) => {
+    async () => {
       try {
-        const session = toSession(await api.adminLogin(password));
+        const session = toSession(await api.adminLogin());
         persist(session);
         setUser(session.user);
       } catch (error) {
-        throw new Error(getApiError(error, "Sign in failed. Please check your password."));
+        throw new Error(getApiError(error, "Sign in failed."));
       }
     },
     [persist],

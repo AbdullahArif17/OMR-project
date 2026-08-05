@@ -127,10 +127,10 @@ export function getApiError(error: unknown, fallback = "Something went wrong. Pl
 export const api = {
   baseUrl: apiUrl,
 
-  async adminLogin(password: string) {
+  async adminLogin() {
     const response = await client.post<ApiEnvelope<TokenPayload>>(
-      "/auth/admin/login",
-      { password },
+      "/auth/login",
+      {},
       { skipAuth: true } as RetryableConfig,
     );
     return unwrap(response.data);

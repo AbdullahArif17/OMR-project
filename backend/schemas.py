@@ -205,11 +205,6 @@ class ErrorResponse(BaseModel):
     message: str
 
 
-class AdminLoginRequest(BaseModel):
-    # The admin console authenticates with a shared password only; no email.
-    password: str = Field(min_length=1, max_length=1024)
-
-
 class AdminUserRead(BaseModel):
     id: uuid.UUID
     email: str = "admin@markwise"
